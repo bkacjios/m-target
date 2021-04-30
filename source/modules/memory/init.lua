@@ -475,7 +475,7 @@ function memory.findGame()
 		memory.vcid = vcid
 
 		log.info("[DOLPHIN] Game: %s", vcid)
-		love.updateTitle(("M'Overlay - Dolphin hooked (%s)"):format(vcid))
+		love.updateTitle(("M'Target - Dolphin hooked (%s)"):format(vcid))
 
 		-- Check for VC clones
 		vcid = memory.vcclones[vcid] or vcid
@@ -489,7 +489,7 @@ function memory.findGame()
 		memory.version = version
 
 		log.info("[DOLPHIN] Game: %s revision %i", gid, version)
-		love.updateTitle(("M'Overlay - Dolphin hooked (%s-%i)"):format(gid, version))
+		love.updateTitle(("M'Target - Dolphin hooked (%s-%i)"):format(gid, version))
 
 		-- See if this GameID is a clone of another
 		local clone = memory.clones[gid] and memory.clones[gid][version] or nil
@@ -511,7 +511,7 @@ function memory.findGame()
 		memory.vcid = vcid
 		memory.version = version
 
-		love.updateTitle("M'Overlay - Dolphin hooked")
+		love.updateTitle("M'Target - Dolphin hooked")
 		memory.runhook("OnGameClosed")
 		memory.process:clearGamecubeRAMOffset() -- Clear the memory address space location (When a new game is opened, we recheck this)
 		log.info("[DOLPHIN] Game closed..")
@@ -523,7 +523,7 @@ function memory.update()
 
 	if not process:isProcessActive() and process:hasProcess() then
 		process:close()
-		love.updateTitle("M'Overlay - Waiting for Dolphin..")
+		love.updateTitle("M'Target - Waiting for Dolphin..")
 		log.info("[DOLPHIN] Unhooked")
 		memory.hooked = false
 	end
@@ -536,7 +536,7 @@ function memory.update()
 			timer = t + 0.5
 			if process:findprocess() then
 				log.info("[DOLPHIN] Hooked")
-				love.updateTitle("M'Overlay - Dolphin hooked")
+				love.updateTitle("M'Target - Dolphin hooked")
 				memory.hooked = true
 			elseif not process:hasGamecubeRAMOffset() and process:findGamecubeRAMOffset() then
 				log.debug("[DOLPHIN] Watching ram: %X [%X]", process:getGamecubeRAMOffset(), process:getGamecubeRAMSize())

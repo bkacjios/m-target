@@ -3,7 +3,6 @@ local PANEL = {}
 local log = require("log")
 local json = require("serializer.json")
 local notification = require("notification")
-local music = require("music")
 
 require("extensions.math")
 
@@ -85,53 +84,6 @@ function PANEL:Initialize()
 
 	function self.SLIPPI.MODE:OnSelectOption(num)
 		self:GetParent():SetBackgroundColor(num == SLIPPI_OFF and color(100, 100, 100, 150) or color(33, 186, 69, 150))
-	end
-
-	self.MELEE.MUSIC = self.MELEE:Add("Checkbox")
-	self.MELEE.MUSIC:SetText("Music")
-	self.MELEE.MUSIC:Dock(DOCK_TOP)
-
-	function self.MELEE.MUSIC:OnToggle(on)
-		if on then
-			music.onStateChange()
-		else
-			music.kill()
-		end
-		self:GetParent().MUSICLOOP:SetEnabled(on)
-		self:GetParent().VOLUME:SetEnabled(on)
-	end
-
-	self.MELEE.MUSICLOOP = self.MELEE:Add("HorizontalSelect")
-	self.MELEE.MUSICLOOP:Dock(DOCK_TOP)
-
-	LOOPING_OFF = self.MELEE.MUSICLOOP:AddOption("Playlist mode", true) -- 1
-	LOOPING_MENU = self.MELEE.MUSICLOOP:AddOption("Loop menu") -- 2
-	LOOPING_STAGE = self.MELEE.MUSICLOOP:AddOption("Loop stage") -- 3
-	LOOPING_ALL = self.MELEE.MUSICLOOP:AddOption("Loop all") -- 4
-
-	function self.MELEE.MUSICLOOP:OnSelectOption(num)
-		music.onLoopChange(num)
-	end
-
-	self.MELEE.MUSICSKIP = self.MELEE:Add("GCBind")
-	self.MELEE.MUSICSKIP:Dock(DOCK_TOP)
-
-	local VOLLABEL = self.MELEE:Add("Label")
-	VOLLABEL:SetText("Music volume")
-	VOLLABEL:SizeToText()
-	VOLLABEL:Dock(DOCK_TOP)
-	VOLLABEL:SetTextColor(color_white)
-	VOLLABEL:SetShadowDistance(1)
-	VOLLABEL:SetShadowColor(color_black)
-	VOLLABEL:SetFont("fonts/melee-bold.otf", 12)
-
-	self.MELEE.VOLUME = self.MELEE:Add("Slider")
-	self.MELEE.VOLUME:SetValue(50)
-	self.MELEE.VOLUME:Dock(DOCK_TOP)
-
-	function self.MELEE.VOLUME:OnValueChanged(i)
-		music.setVolume(i)
-		VOLLABEL:SetText(("Music Volume - %d%%"):format(i))
 	end
 
 	self.PORTTITLE = LEFT:Add("Checkbox")
@@ -229,19 +181,8 @@ end
 
 function PANEL:GetSaveTable()
 	return {
-		["port"] = love.getPort(),
-		["slippi-mode"] = self:GetSlippiMode(),
-		["port-in-title"] = self:IsPortTitleEnabled(),
-		["always-show-port"] = self:AlwaysShowPort(),
-		["high-contrast"] = self:IsHighContrast(),
-		["enable-dpad"] = self:IsDPadEnabled(),
-		["enable-start"] = self:IsStartEnabled(),
 		["debugging"] = self:IsDebugging(),
 		["transparency"] = self:GetTransparency(),
-		["melee-stage-music"] = self:PlayStageMusic(),
-		["melee-stage-music-loop"] = self:GetMusicLoopMode(),
-		["melee-stage-music-skip-buttons"] = self:GetMusicSkipMask(),
-		["melee-music-volume"] = self:GetVolume(),
 	}
 end
 
@@ -345,44 +286,15 @@ function PANEL:LoadSettings()
 		for k,v in pairs(json.decode(f:read())) do
 			if settings[k] ~= nil then
 				settings[k] = v
-			elseif k == "hide-dpad" then
-				settings["enable-dpad"] = not v
-				log.debug("[CONFIG] Converting old config setting %q", k)
-			elseif k == "slippi-netplay" and v == true then
-				settings["slippi-mode"] = SLIPPI_NETPLAY
-				log.debug("[CONFIG] Converting old config setting %q", k)
-			elseif k == "stage-music" or k == "stage-music-loop" or k == "music-volume" then
-				settings["melee-" .. k] = v
-				log.debug("[CONFIG] Converting old config setting %q to %q", k, "melee-" .. k)
-			else
-				log.debug("[CONFIG] Ignoring old setting config %q", k)
 			end
 		end
 		f:close()
 	end
 
-	if type(settings["melee-stage-music-loop"]) == "boolean" and settings["melee-stage-music-loop"] == true then
-		settings["melee-stage-music-loop"] = LOOPING_STAGE
-	end
-
 	self.m_tSettings = settings
 
-	love.setPort(settings["port"] or 1)
-
-	self.PORTTITLE:SetToggle(settings["port-in-title"] or false, true)
-	self.ALWAYSPORT:SetToggle(settings["always-show-port"] or false, true)
-	self.HIGH_CONTRAST:SetToggle(settings["high-contrast"] or false, true)
-	if settings["enable-dpad"] ~= nil then
-		self.DPAD:SetToggle(settings["enable-dpad"], true)
-	end
-	self.START:SetToggle(settings["enable-start"] or false, true)
 	if self.DEBUG then self.DEBUG:SetToggle(love.hasConsole() or settings["debugging"] or false) end
 	if self.TRANSPARENCY then self.TRANSPARENCY:SetValue(settings["transparency"] or 100) end
-	self.SLIPPI.MODE:SelectOption(settings["slippi-mode"] or 0, true)
-	self.MELEE.MUSIC:SetToggle(settings["melee-stage-music"] or false, true)
-	self.MELEE.MUSICLOOP:SelectOption(settings["melee-stage-music-loop"] or LOOPING_OFF, true)
-	self.MELEE.MUSICSKIP:UpdateButtonCombo(settings["melee-stage-music-skip-buttons"] or 0x0004)
-	self.MELEE.VOLUME:SetValue(settings["melee-music-volume"] or 50)
 end
 
 gui.register("Settings", PANEL, "Panel")

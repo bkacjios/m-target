@@ -156,7 +156,7 @@ function love.console(opened)
 	local chdl = kernel.GetConsoleWindow()
 	if not chdl then return end
 	if opened then
-		love.setConsoleTitle("M'Overlay Console")
+		love.setConsoleTitle("M'Target Console")
 		love.enableConsoleColors()
 		user.ShowWindow(chdl, SW_SHOW)
 	else
@@ -165,10 +165,10 @@ function love.console(opened)
 end
 
 if love.hasConsole() then
-	love.setConsoleTitle("M'Overlay Console")
+	love.setConsoleTitle("M'Target Console")
 	love.enableConsoleColors()
 end
 
 log.debug(string.format("Love2D %d.%d.%d - %s", love.getVersion()))
 log.debug("%s (%s)", _VERSION, jit.version)
-log.debug("M'Overlay (%s)", love.getMOverlayVersion())
+log.debug("M'Target (%s)", love.getMOverlayVersion())

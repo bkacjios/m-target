@@ -1,5 +1,8 @@
 -- Super Smash Bros. Melee (NTSC v1.2) / Dairantou Smash Brothers DX (Japan v1.2)
 
+local memory = require("memory")
+local log = require("log")
+
 local game = {
 	memorymap = {}
 }
@@ -12,7 +15,6 @@ game.memorymap[0x804D3887] = { type = "u8", name = "volume.music" } -- Scale is 
 game.memorymap[0x804D388F] = { type = "u8", name = "volume.ui" } -- Scale is (0-127)
 
 game.memorymap[0x80479D60] = { type = "u32", name = "frame" }
-game.memorymap[0x8049E753] = { type = "u8", name = "stage", debug = true }
 game.memorymap[0x80479D30] = { type = "u8", name = "menu.major", debug = true }
 game.memorymap[0x80479D33] = { type = "u8", name = "menu.minor", debug = true }
 game.memorymap[0x804D6598] = { type = "u8", name = "menu.player_one_port", debug = true } -- What port is currently acting as "Player 1" in single player games
@@ -207,11 +209,25 @@ end
 game.memorymap[0x804D640F] = { type = "bool", name = "match.paused" }
 
 local match_info = 0x8046B6A0
+
 local match_info_struct = {
 	[0x0005] = { type = "bool", name = "match.playing", debug = true },
 	[0x0008] = { type = "u8", name = "match.result", debug = true },
 	[0x000E] = { type = "bool", name = "match.finished", debug = true },
+	[0x0026] = { type = "u16", name = "match.frame" },
+	[0x0028] = { type = "int", name = "match.timer.seconds" },
+	[0x002C] = { type = "short", name = "match.timer.millis" },
 }
+
+local stage_info_addr = 0x8049E6C8
+local stage_info_struct = {
+	[0x0088] = { type = "int", name = "stage.id" },
+	[0x06D4] = { type = "short", name = "stage.targets" },
+	[0x06E0] = { type = "float", name = "stage.homerun_distance" },
+}
+for offset, info in pairs(stage_info_struct) do
+	game.memorymap[stage_info_addr + offset] = info
+end
 
 local player_cursors_pointers = {
 	0x804A0BC0,
