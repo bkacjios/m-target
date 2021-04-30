@@ -918,7 +918,7 @@ function melee.isInGame()
 		--return memory.menu.minor % 2 == 0
 		return true
 	end
-	if PANEL_SETTINGS:IsSlippiReplay() and memory.menu.major == MENU_START_MATCH then
+	if memory.menu.major == MENU_START_MATCH then
 		return memory.menu.minor == MENU_START_MATCH_INGAME
 	end
 	if memory.menu.major == MENU_VS_MODE or memory.menu.major == MENU_VS_UNKNOWN then

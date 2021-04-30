@@ -414,12 +414,6 @@ function memory.isMelee()
 	local gid = memory.gameid
 	local version = memory.version
 
-	-- Force the GAMEID and VERSION to be Melee 1.02, since Fizzi seems to be using the gameid address space for something..
-	if gid ~= GAME_NONE and PANEL_SETTINGS:IsSlippiNetplay() then
-		gid = "GALE01"
-		version = 0x02
-	end
-
 	-- See if this GameID is a clone of another
 	local clone = memory.clones[gid] and memory.clones[gid][version] or nil
 
@@ -458,12 +452,6 @@ function memory.findGame()
 	local version = memory.readGameVersion()
 
 	local vcid = memory.readVirtualConsoleID()
-
-	-- Force the GAMEID and VERSION to be Melee 1.02, since Fizzi seems to be using the gameid address space for something..
-	if gid ~= GAME_NONE and PANEL_SETTINGS:IsSlippiNetplay() then
-		gid = "GALE01"
-		version = 0x02
-	end
 
 	-- When playing Slippi netplay.. the game ID can and will change..
 	-- This would normally break things, but if you enable Rollback/Netplay mode it will force the gameid to always be GALE01 v1.02

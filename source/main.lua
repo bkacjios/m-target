@@ -57,9 +57,6 @@ function love.load(args, unfilteredArg)
 	gui.init()
 	love.keyboard.setKeyRepeat(true)
 
-	PANEL_PORT_SELECT = gui.create("PortSelect")
-	PANEL_PORT_SELECT:SetVisible(false)
-
 	PANEL_SETTINGS = gui.create("Settings")
 	PANEL_SETTINGS:LoadSettings()
 	PANEL_SETTINGS:SetVisible(false)
@@ -93,7 +90,6 @@ end
 function love.keypressed(key, scancode, isrepeat)
 	if key == "escape" and not isrepeat then
 		PANEL_SETTINGS:Toggle()
-		PANEL_PORT_SELECT:Toggle()
 	end
 
 	gui.keyPressed(key, scancode, isrepeat)
@@ -183,12 +179,12 @@ do
 			graphics.setBlendMode("replace", "premultiplied")
 		end
 
-		graphics.setScissor(256-80-20, 0, 160+40, 256)
+		graphics.setScissor(160-80-20, 0, 160+40, 160)
 
 		local icon = game and MELEE or DOLPHIN
 
 		graphics.setColor(255, 255, 255, 255)
-		graphics.easyDraw(icon, 256+lx, 64+40+ly, math.rad(rx), 80, 80, 0.5, 0.5)
+		graphics.easyDraw(icon, 160+lx, 64+40+ly, math.rad(rx), 80, 80, 0.5, 0.5)
 		
 		if game then
 			local p = rotate_speed/13
@@ -196,7 +192,7 @@ do
 			for i=0, 16 do
 				local j = rotate_speed - i
 				graphics.setColor(255, 255, 255, rotate_speed*4)
-				graphics.easyDraw(MELEELABEL, 256+lx, 64+40+ly, math.rad(rx-(i*p*4)), 80, 80, 0.5, 0.5)
+				graphics.easyDraw(MELEELABEL, 160+lx, 64+40+ly, math.rad(rx-(i*p*4)), 80, 80, 0.5, 0.5)
 			end
 		end
 
@@ -205,8 +201,8 @@ do
 		if not game then
 			graphics.setBlendMode("multiply", "premultiplied")
 
-			graphics.easyDraw(GRADIENT, 256-80-20, 0, 0, 80, 256)
-			graphics.easyDraw(GRADIENT, 256+80+20, 0, math.rad(180), 80, 256, 0, 1)
+			graphics.easyDraw(GRADIENT, 160-80-20, 0, 0, 80, 256)
+			graphics.easyDraw(GRADIENT, 160+80+20, 0, math.rad(180), 80, 256, 0, 1)
 		end
 
 		graphics.setCanvas()
@@ -216,7 +212,7 @@ do
 		if game then
 			local sw = math.sinlerp(0.5, 1, t*3)
 			graphics.setColor(125, 125, 125, 150)
-			graphics.easyDraw(SHADOW, 256, 154, 0, 64*sw, 6*sw, 0.5, 0.5)
+			graphics.easyDraw(SHADOW, 160, 154, 0, 64*sw, 6*sw, 0.5, 0.5)
 		end
 
 		graphics.setColor(255, 255, 255, 255)
@@ -232,7 +228,7 @@ do
 
 		local w = WAITING_FONT:getWidth(msg)
 		local h = WAITING_FONT:getHeight()
-		local x = 256 - (w/2)
+		local x = 160 - (w/2)
 		local y = 128+32
 
 		local i = math.floor(t % #ellipses) + 1
@@ -414,15 +410,15 @@ function love.draw()
 		if PANEL_SETTINGS:IsVisible() then
 			graphics.setBackgroundColor(255, 255, 255, alpha)
 
-			for x=0, 512/32 do
-				for y=0, 256/32 do
+			for x=0, 320/32 do
+				for y=0, 448/32 do
 					graphics.setColor(240, 240, 240, 255)
 					graphics.rectangle("fill", 32 * (x + (y%2)), 32 * (y + (x%2)), 32, 32)
 				end
 			end
 
 			graphics.setColor(0, 0, 0, alpha)
-			graphics.rectangle("fill", 0, 0, 512, 256)
+			graphics.rectangle("fill", 0, 0, 320, 448)
 
 			--[[graphics.setColor(0, 0, 0, 100)
 			graphics.rectangle("fill", 512 - 20, 0, 20, 256)
