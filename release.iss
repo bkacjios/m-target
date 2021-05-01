@@ -52,6 +52,7 @@ Source: "build/x64/msvcp120.dll"; DestDir: "{app}"; DestName: "msvcp120.dll"; Fl
 Source: "build/x64/msvcr120.dll"; DestDir: "{app}"; DestName: "msvcr120.dll"; Flags: ignoreversion      
 Source: "build/x64/OpenAL32.dll"; DestDir: "{app}"; DestName: "OpenAL32.dll"; Flags: ignoreversion
 Source: "build/x64/SDL2.dll"; DestDir: "{app}"; DestName: "SDL2.dll"; Flags: ignoreversion
+Source: "build/x64/sqlite3.dll"; DestDir: "{app}"; DestName: "sqlite3.dll"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\m-overlay-64.exe"

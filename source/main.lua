@@ -15,10 +15,11 @@ require("extensions.love")
 
 local log = require("log")
 local melee = require("melee")
-local zce = require("zce")
 local memory = require("memory")
 local perspective = require("perspective")
 local notification = require("notification")
+
+local targets = require("targets")
 
 local color = require("util.color")
 local gui = require("gui")
@@ -30,11 +31,6 @@ local newImage = graphics.newImage
 
 local PORT_FONT = graphics.newFont("fonts/melee-bold.otf", 42)
 local WAITING_FONT = graphics.newFont("fonts/melee-bold.otf", 24)
-local FRAME_FONT = graphics.newFont("fonts/melee-bold.otf", 14)
-local SPLIT_SEC = FRAME_FONT
-local SPLIT_MS = graphics.newFont("fonts/melee-bold.otf", 9)
-local TOTAL_SEC = graphics.newFont("fonts/melee-bold.otf", 32)
-local TOTAL_MS = graphics.newFont("fonts/melee-bold.otf", 20)
 
 local GRADIENT = newImage("textures/gradient.png")
 local DOLPHIN = newImage("textures/dolphin.png")
@@ -42,7 +38,6 @@ local GAME = newImage("textures/game.png")
 local MELEE = newImage("textures/meleedisk.png")
 local MELEELABEL = newImage("textures/meleedisklabel.png")
 local SHADOW = newImage("textures/shadow.png")
-local TARGET = newImage("textures/target.png")
 
 function love.updateTitle(str)
 	love.window.setTitle(str)
@@ -251,146 +246,6 @@ end
 	log.info("Homerun distance: %f", distance/(12*2.54))
 end)]]
 
-local function getMeleeTimpstamp(frame)
-	local duration = frame/60
-	local seconds = math.floor(duration)
-	local ms = (frame % 60) * 100 / 60
-	return seconds, math.floor(ms)
-end
-
-local TARGET_TIMES = {}
-
-memory.hook("stage.targets", "HIT TARGET", function(remain)
-	if not memory.match.playing and remain >= 10 then
-		TARGET_TIMES = {}
-	end
-	if not memory.match.playing and remain >= 10 then return end
-	local num = 10 - remain
-	if memory.match.frame > 0 and remain < 10 then
-		log.info("Hit target #%d at frame %d - time %02d.%02d", num, memory.match.frame, getMeleeTimpstamp(memory.match.frame))
-	end
-	TARGET_TIMES[num] = memory.match.frame
-end)
-
-memory.hook("match.playing", "END TIME", function(playing)
-	if playing then
-		log.info("Started at frame %d", memory.match.frame)
-	else
-		log.info("Ended at frame %d - time %02d.%02d", memory.match.frame, getMeleeTimpstamp(memory.match.frame))
-	end
-end)
-
-local greyscale = graphics.newShader[[
-extern number percent;
-
-vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords)
-{
-	vec4 pixel = Texel(texture, texture_coords);
-	float grey = 0.21 * pixel.r + 0.71 * pixel.g + 0.07 * pixel.b;
-	pixel.r = pixel.r * percent + grey * (1.0 - percent);
-	pixel.g = pixel.g * percent + grey * (1.0 - percent);
-	pixel.b = pixel.b * percent + grey * (1.0 - percent);
-	pixel.a = pixel.a * color.a;
-	return pixel;
-}
-]]
-
-function love.drawTargetTestSplits()
-	local port = memory.menu.player_one_port+1
-
-	graphics.setColor(200, 200, 200, 100)
-	melee.drawSeries(port, 8, 64, 0, 320, 320)
-	graphics.setColor(255, 255, 255, 255)
-	melee.drawStock(port, 320 - 24 - 8, 8, 0, 24, 24)
-
-	local frame = string.format("%d", memory.match.frame)
-
-	graphics.setFont(FRAME_FONT)
-	graphics.setColor(0, 0, 0, 255)
-	graphics.print(frame, 4, 5)
-	graphics.setColor(255, 255, 255, 255)
-	graphics.print(frame, 4, 4)
-
-	local seconds, ms = getMeleeTimpstamp(memory.match.frame)
-	local secstr = string.format("%d", seconds)
-	local msstr = string.format(".%02d", ms)
-
-	local secw = TOTAL_SEC:getWidth(secstr)
-	local totalw = secw + TOTAL_MS:getWidth(msstr)
-
-	graphics.setFont(TOTAL_SEC)
-	graphics.setColor(0, 0, 0, 255)
-	graphics.print(secstr, 160 - totalw/2, 5)
-	graphics.setColor(255, 255, 255, 255)
-	graphics.print(secstr, 160 - totalw/2, 4)
-
-	graphics.setFont(TOTAL_MS)
-	graphics.setColor(0, 0, 0, 255)
-	graphics.print(msstr, 160 - totalw/2 + secw, 16)
-	graphics.setColor(255, 255, 255, 255)
-	graphics.print(msstr, 160 - totalw/2 + secw, 15)
-
-	local remain = (10 - memory.stage.targets) + 1
-
-	for i=1,10 do
-		if remain == i then
-			graphics.setColor(0, 100, 0, 150)
-		elseif i%2 == 1 then
-			graphics.setColor(100, 100, 100, 150)
-		else
-			graphics.setColor(50, 50, 50, 150)
-		end
-		graphics.rectangle("fill", 0, 4 + (36*i), 320, 32)
-
-		local grey = 1
-		if remain == i then
-			grey = 0.65
-		elseif i >= remain then
-			grey = 0
-		end
-		greyscale:send("percent", grey)
-
-			-- Draw greyscaled image
-
-		local y = 14 + (36*i)
-		local numstr = string.format("%2d", i)
-
-		graphics.setFont(SPLIT_SEC)
-		graphics.setColor(0, 0, 0, 255)
-		graphics.print(numstr, 8, y)
-		graphics.setColor(255, 255, 255, 255)
-		graphics.print(numstr, 8, y-1)
-
-		graphics.setShader(greyscale)
-			graphics.setColor(255, 255, 255, 255)
-			graphics.easyDraw(TARGET, 8 + 24, 8 + (36*i), 0, 24, 24)
-		graphics.setShader()
-
-		local t = remain == i and memory.match.frame or TARGET_TIMES[i]
-		if t then
-			local seconds, ms = getMeleeTimpstamp(t)
-
-			local secstr = string.format("%d", seconds)
-			local msstr = string.format(".%02d", ms)
-
-			local secw = SPLIT_SEC:getWidth(secstr)
-			local totalw = secw + SPLIT_MS:getWidth(msstr)
-
-			graphics.setFont(SPLIT_SEC)
-			graphics.setColor(0, 0, 0, 255)
-			graphics.print(secstr, 320 - 8 - totalw, y)
-			graphics.setColor(255, 255, 255, 255)
-			graphics.print(secstr, 320 - 8 - totalw, y-1)
-
-			graphics.setFont(SPLIT_MS)
-			graphics.setColor(0, 0, 0, 255)
-			graphics.print(msstr, 320 - 8 - totalw + secw, y+5)
-			graphics.setColor(255, 255, 255, 255)
-			graphics.print(msstr, 320 - 8 - totalw + secw, y+4)
-		end
-	end
-end
-
 function love.draw()
 	if not love.supportsGameCapture() then
 		graphics.setBackgroundColor(100, 100, 100, 255)
@@ -434,7 +289,7 @@ function love.draw()
 	end
 
 	if memory.initialized and memory.game and memory.controller then
-		love.drawTargetTestSplits()
+		targets.drawSplits()
 	else
 		if memory.hooked then
 			love.drawTrobber(true)
@@ -499,6 +354,7 @@ function love.run()
 end
 
 function love.quit()
+	targets.endAttempt()
 	PANEL_SETTINGS:SaveSettings()
 	gui.shutdown()
 end

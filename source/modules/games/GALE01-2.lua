@@ -211,7 +211,7 @@ local match_info_struct = {
 	[0x0005] = { type = "bool", name = "match.playing", debug = true },
 	[0x0008] = { type = "u8", name = "match.result", debug = true },
 	[0x000E] = { type = "bool", name = "match.finished", debug = true },
-	[0x0026] = { type = "u16", name = "match.frame" },
+	[0x0026] = { type = "u16", name = "match.timer.frame" },
 	[0x0028] = { type = "int", name = "match.timer.seconds" },
 	[0x002C] = { type = "short", name = "match.timer.millis" },
 }
