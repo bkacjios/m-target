@@ -1,7 +1,7 @@
 @echo OFF
 
 REM Release name
-SET NAME=m-overlay
+SET NAME=m-target
 
 REM Architecture
 REM auto, x64, x86
@@ -87,7 +87,7 @@ copy /b %LOVE_DIR%\love.exe+,, %BUILD_DIR%
 
 echo Customizing love.exe
 rcedit-x64 "%BUILD_DIR%\love.exe" --set-icon "%INSTALLER_DIR%\icon.ico"
-rcedit-x64 "%BUILD_DIR%\love.exe" --set-version-string "FileDescription" "M'Overlay"
+rcedit-x64 "%BUILD_DIR%\love.exe" --set-version-string "FileDescription" "M'Target"
 rcedit-x64 "%BUILD_DIR%\love.exe" --set-file-version "%VERSION%"
 rcedit-x64 "%BUILD_DIR%\love.exe" --set-version-string "InternalName" "%NAME%-%BIT%"
 rcedit-x64 "%BUILD_DIR%\love.exe" --set-version-string "OriginalFilename" "%EXE_NAME%"

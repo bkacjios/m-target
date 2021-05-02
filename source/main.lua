@@ -16,7 +16,6 @@ require("extensions.love")
 local log = require("log")
 local melee = require("melee")
 local memory = require("memory")
-local perspective = require("perspective")
 local notification = require("notification")
 
 local targets = require("targets")

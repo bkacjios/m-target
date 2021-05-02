@@ -347,37 +347,17 @@ memory.hook("controller.*.buttons.pressed", "Targets - Mode Switcher", function(
 end)
 
 local greyscale = graphics.newShader[[
-extern number greyscale;
+extern number percent;
 
 vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords)
 {
 	vec4 pixel = Texel(texture, texture_coords);
 	float grey = 0.36 * pixel.r + 0.41 * pixel.g + 0.23 * pixel.b;
-	pixel.r = pixel.r * greyscale + grey * (1.0 - greyscale);
-	pixel.g = pixel.g * greyscale + grey * (1.0 - greyscale);
-	pixel.b = pixel.b * greyscale + grey * (1.0 - greyscale);
+	pixel.r = pixel.r * percent + grey * (1.0 - percent);
+	pixel.g = pixel.g * percent + grey * (1.0 - percent);
+	pixel.b = pixel.b * percent + grey * (1.0 - percent);
 	pixel.a = pixel.a * color.a;
 	return pixel;
-}
-]]
-
-local blur = graphics.newShader[[
-extern number radius;
-extern vec2 imageSize;
-
-vec4 effect(vec4 color, Image tex, vec2 tc, vec2 pc)
-{
-	color = vec4(0);
-	vec2 st;
-
-	for (float x = -radius; x <= radius; x++) {
-		for (float y = -radius; y <= radius; y++) {
-			// to texture coordinates
-			st.xy = vec2(x,y) / imageSize;
-			color += Texel(tex, tc + st);
-		}
-	}
-	return color / ((2.0 * radius + 1.0) * (2.0 * radius + 1.0));
 }
 ]]
 
@@ -440,10 +420,6 @@ function targets.drawSplits()
 		end
 		graphics.rectangle("fill", 0, 4 + (36*i), 320, 32)
 
-		if current == i then
-			greyscale:send("greyscale", 0.25)
-		end
-
 		local y = 14 + (36*i)
 		local numstr = string.format("%2d", i)
 
@@ -453,12 +429,19 @@ function targets.drawSplits()
 		graphics.setColor(255, 255, 255, 255)
 		graphics.print(numstr, 8, y-1)
 
+
+		if current == i then
+			greyscale:send("percent", 0.25)
+		elseif i > current then
+			greyscale:send("percent", 0)
+		else
+			greyscale:send("percent", 1)
+		end
+
 		graphics.setShader(greyscale)
 			graphics.setColor(255, 255, 255, 255)
 			graphics.easyDraw(TARGET, 8 + 24, 8 + (36*i), 0, 24, 24)
 		graphics.setShader()
-
-		greyscale:send("greyscale", 0)
 
 		local t = (targets.isValidRun() and current == i) and memory.match.timer.frame or targets.TIME_FRAMES[i]
 		if t then

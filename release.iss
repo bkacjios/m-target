@@ -7,12 +7,12 @@
 ; SEE THE DOCUMENTATION FOR DETAILS ON CREATING .ISS SCRIPT FILES!
 
 [Setup]
-#define AppName "M'Overlay"
+#define AppName "M'Target"
 #define AppMajor
 #define AppMinor
 #define AppRevision
 #define AppBuild
-#define AppVersion GetVersionComponents("build/x64/m-overlay-x64.exe", AppMajor, AppMinor, AppRevision, AppBuild)
+#define AppVersion GetVersionComponents("build/x64/m-target-x64.exe", AppMajor, AppMinor, AppRevision, AppBuild)
 #define AppVersion Str(AppMajor) + "." + Str(AppMinor) + "." + Str(AppRevision)
 DisableWelcomePage=no
 AppName={#AppName}
@@ -20,12 +20,12 @@ AppId={#AppName}
 AppVersion={#AppVersion}
 AppPublisher=Bkacjios
 AppPublisherURL=https://github.com/bkacjios
-AppUpdatesURL=https://github.com/bkacjios/m-overlay/releases
-AppSupportURL=https://github.com/bkacjios/m-overlay/issues
+AppUpdatesURL=https://github.com/bkacjios/m-target/releases
+AppSupportURL=https://github.com/bkacjios/m-target/issues
 WizardStyle=modern
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
-UninstallDisplayIcon={app}\m-overlay-64.exe
+UninstallDisplayIcon={app}\m-targets-64.exe
 SetupIconFile=installer/icon.ico
 WizardImageFile=installer/wizardbanner.bmp
 WizardSmallImageFile=installer/wizard.bmp
@@ -44,7 +44,7 @@ LicenseFile=build/x64/license.txt
 
 [Files]                                
 Source: "build/x64/license.txt"; DestDir: "{app}"; DestName: "license.txt"; Flags: ignoreversion                                    
-Source: "build/x64/m-overlay-x64.exe"; DestDir: "{app}"; DestName: "m-overlay-64.exe"; Flags: ignoreversion       
+Source: "build/x64/m-target-x64.exe"; DestDir: "{app}"; DestName: "m-target-64.exe"; Flags: ignoreversion       
 Source: "build/x64/love.dll"; DestDir: "{app}"; DestName: "love.dll"; Flags: ignoreversion
 Source: "build/x64/lua51.dll"; DestDir: "{app}"; DestName: "lua51.dll"; Flags: ignoreversion
 Source: "build/x64/mpg123.dll"; DestDir: "{app}"; DestName: "mpg123.dll"; Flags: ignoreversion
@@ -55,7 +55,7 @@ Source: "build/x64/SDL2.dll"; DestDir: "{app}"; DestName: "SDL2.dll"; Flags: ign
 Source: "build/x64/sqlite3.dll"; DestDir: "{app}"; DestName: "sqlite3.dll"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\{#AppName}"; Filename: "{app}\m-overlay-64.exe"
+Name: "{group}\{#AppName}"; Filename: "{app}\m-target-64.exe"
 
 [Run]
 Filename: {app}\m-overlay-64.exe; Description: "Launch {#AppName}"; Flags: postinstall shellexec skipifsilent nowait
