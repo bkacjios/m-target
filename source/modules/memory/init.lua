@@ -442,7 +442,6 @@ function memory.loadGameScript(path)
 	else
 		memory.supportedgame = false
 		notification.error(("Unsupported game %s"):format(path))
-		notification.error("Playing slippi netplay? Press 'escape' and enable Rollback/Netplay mode")
 		log.error("[DOLPHIN] %s", game) -- game variable is an error string
 	end
 end
