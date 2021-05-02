@@ -1116,7 +1116,11 @@ function sqlite_db:last_insert_rowid()
 	return tonumber(sqlite3.sqlite3_last_insert_rowid(self.db))
 end
 
--- TODO: db:nrows
+--[[function sqlite_db:nrows(sql, ...)
+	local stmt = self:prepare(sdl)
+	stmt:bind_values(...)
+	return stmt:nrows()
+end]]
 
 function sqlite_db:prepare(sql)
 	local stmtptr = new_stmt_ptr()
@@ -1253,8 +1257,6 @@ function sqlite_stmt:get_named_types()
 	return tbl
 end
 
--- TODO: stmt:get_named_values
--- TODO: stmt:get_names
 -- TODO: stmt:get_unames
 -- TODO: stmt:get_utypes
 -- TODO: stmt:get_uvalues
@@ -1263,10 +1265,26 @@ function sqlite_stmt:get_value(n)
 	return value_handlers[sqlite3.sqlite3_column_type(self.stmt,n)](self.stmt,n)
 end
 
+function sqlite_stmt:get_names()
+	local tbl = {}
+	for i=0,sqlite3.sqlite3_column_count(self.stmt)-1 do
+		tbl[i+1] = self:get_name(i)
+	end
+	return tbl
+end
+
 function sqlite_stmt:get_values()
 	local tbl = {}
 	for i=0,sqlite3.sqlite3_column_count(self.stmt)-1 do
 		tbl[i+1] = self:get_value(i)
+	end
+	return tbl
+end
+
+function sqlite_stmt:get_named_values()
+	local tbl = {}
+	for i=0,sqlite3.sqlite3_column_count(self.stmt)-1 do
+		tbl[self:get_name(i)] = self:get_value(i)
 	end
 	return tbl
 end
@@ -1280,7 +1298,15 @@ end
 
 function sqlite_stmt:isopen() return self.stmt and true or false end
 
--- TODO: stmt:nrows
+function sqlite_stmt:nrows()
+	return function()
+		if self:step() then
+			return self:get_named_values()
+		else
+			return nil
+		end
+	end
+end
 
 function sqlite_stmt:reset()
 	self.db:check(sqlite3.sqlite3_reset(self.stmt))
