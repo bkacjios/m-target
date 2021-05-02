@@ -25,6 +25,7 @@ local RESULT_NONE		= 0x0	-- Set at the start
 local RESULT_FAILURE	= 0x4	-- Fell off the stage
 local RESULT_COMPLETE	= 0x6	-- Successfully hit all targets
 local RESULT_LRAS		= 0x7	-- Quit using L+R+A+Start
+local RESULT_RESET		= 0x8	-- Reset using Z
 
 local function getMeleeTimpstamp(frame)
 	local duration = frame/60
@@ -53,23 +54,24 @@ timedb:exec([[CREATE TABLE IF NOT EXISTS splits (
 	UNIQUE(attempt,target) -- we should never have duplicate targets in a given attempt
 );]])
 
-timedb:exec([[CREATE TABLE IF NOT EXISTS milestones (
-	character			INTEGER, -- character that was used
-	target				INTEGER, -- target number this split was for
-	best_attempt		INTEGER, -- what attempt we completed this best in
-	best_tframes		INTEGER, -- #frames the timer spent to achieve this split
-	best_gframes		INTEGER, -- #frames entire duration of the attempt
-	worst_attempt		INTEGER, -- what attempt we completed this worst in
-	worst_tframes		INTEGER, -- #frames the timer spent to achieve this split
-	worst_gframes		INTEGER, -- #frames entire duration of the attempt
-	UNIQUE(character,target)	 -- we should never have duplicate targets tied to a given character
-);]])
-
 function targets.getCharacter()
 	return memory.player[1].select.character
 end
 
 function targets.getSumOfBest(character)
+end
+
+function targets.getBestTime(character)
+	local stmt = db:prepare("SELECT tframes, gframes FROM attempts WHERE character==? AND gframes IS NOT NULL AND result==6 ORDER BY gframes ASC LIMIT 1;")
+	stmt:bind_values(character)
+	stmt:step()
+	local values = stmt:get_values()
+	stmt:finalize()
+	return values
+end
+
+function targets.getBestTargetTime(character, target)
+
 end
 
 function targets.startAttempt()
@@ -82,6 +84,7 @@ function targets.startAttempt()
 end
 
 function targets.saveSplit(target)
+	targets.newAttempt()
 	local stmt = timedb:prepare("INSERT INTO splits (attempt, target, tframes, gframes) VALUES (?,?,?,?);")
 	stmt:bind_values(targets.ATTEMPT_ID, target, memory.match.timer.frame, memory.frame)
 	stmt:step()
@@ -95,17 +98,21 @@ function targets.saveResults()
 	stmt:finalize()
 end
 
+function targets.isValidAttempt()
+	return targets.ATTEMPT_IN_PROGRESS
+end
+
 function targets.newAttempt()
-	if not targets.ATTEMPT_IN_PROGRESS then
+	if not targets.isValidAttempt() then
 		targets.ATTEMPT_IN_PROGRESS = true
-		log.debug("Started attempt #%d", targets.startAttempt())
+		log.info("Started attempt #%d at game frame %d", targets.startAttempt(), memory.frame)
 		targets.TIME_FRAMES = {}
 		targets.BROKEN = 0
 	end
 end
 
 function targets.endAttempt()
-	if targets.ATTEMPT_IN_PROGRESS then
+	if targets.isValidAttempt() then
 		targets.ATTEMPT_IN_PROGRESS = false
 		log.info("Ended attempt #%d at frame %d - time %02d.%02d", targets.ATTEMPT_ID, memory.match.timer.frame, getMeleeTimpstamp(memory.match.timer.frame))
 		targets.saveResults()
@@ -118,42 +125,40 @@ memory.hook("match.finished", "Targets - Check start of game", function(finished
 	end
 end)
 
-local prev_remain
+local prev_remain = -1
 memory.hook("stage.targets", "Targets - Save Split", function(remain)
-	if not prev_remain then
-		prev_remain = remain
-	end
+	local count = prev_remain - remain
+	local reset = memory.match.timer.frame == 0 and count > 1
+	local decresed = prev_remain > remain
 
-	local num = 10 - remain
-	if remain < prev_remain and memory.match.finished == false then
-		-- Only log splits when the target count decreases
-		local diff = prev_remain - remain
-		if diff > 1 and memory.match.timer.frame == 0 then
-			targets.endAttempt()
-			targets.newAttempt()
-		else
-			for i=targets.BROKEN+1, num do
-				-- We can hit more than one target in a single frame, so loop through and mark every single one as hit
-				log.info("%d - Hit target #%d at frame %d - time %02d.%02d", remain, i, memory.match.timer.frame, getMeleeTimpstamp(memory.match.timer.frame))	
-				targets.TIME_FRAMES[i] = memory.match.timer.frame
-				targets.saveSplit(i)
-			end
-			targets.BROKEN = num
-		end
-	end
+	local endpos = 10-remain
+	local startpos = 10-prev_remain
 
 	prev_remain = remain
+
+	if decresed and memory.match.finished == false and not reset then
+		-- Only log splits when the target count decreases
+		for i=startpos+1, endpos do
+			targets.saveSplit(i)
+			-- We can hit more than one target in a single frame, so loop through and mark every single one as hit
+			log.info("Hit target #%d at frame %d - time %02d.%02d", i, memory.match.timer.frame, getMeleeTimpstamp(memory.match.timer.frame))	
+			targets.TIME_FRAMES[i] = memory.match.timer.frame
+		end
+		targets.BROKEN = endpos
+	end
 end)
 
 memory.hook("match.playing", "Targets - Get End Time", function(playing)
 	if playing then
 		targets.MATCH_STARTED = true
-		log.info("Started at game frame %d", memory.frame)
+		targets.newAttempt()
+	elseif not playing then
+		targets.endAttempt()
 	end
 end)
 
 memory.hook("match.result", "Targets - Check Complete", function(result)
-	targets.endAttempt()
+	--targets.endAttempt()
 end)
 
 local greyscale = graphics.newShader[[
