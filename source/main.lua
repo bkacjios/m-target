@@ -353,7 +353,7 @@ function love.run()
 end
 
 function love.quit()
-	targets.endAttempt()
+	targets.endRun()
 	PANEL_SETTINGS:SaveSettings()
 	gui.shutdown()
 end

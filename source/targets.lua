@@ -3,8 +3,8 @@ local targets = {
 	TIME_FRAME = 0,
 	BROKEN = 0,
 	PREV_BROKEN_FRAME = 0,
-	ATTEMPT_ID = nil,
-	ATTEMPT_IN_PROGRESS = false,
+	RUN_ID = nil,
+	RUN_IN_PROGRESS = false,
 	CHARACTER_DATA = {},
 	IN_DISPLAY_MENU = nil,
 	DISPLAY_MODE = 0x1,
@@ -58,7 +58,7 @@ timedb:exec([[CREATE TABLE IF NOT EXISTS runs (
 );]])
 
 timedb:exec([[CREATE TABLE IF NOT EXISTS splits (
-	run			INTEGER NOT NULL, -- the attempt_id that this split is tied to
+	run			INTEGER NOT NULL, -- the RUN_ID that this split is tied to
 	target		INTEGER, -- target number this split was for
 	tframe		INTEGER, -- #frames the timer spent to achieve this split
 	gframe		INTEGER,  -- #frames in total spent to achieve this split (including before timer start)
@@ -87,11 +87,11 @@ function targets.getCDATA(character, name)
 	end
 end
 
-function targets.updateCharAttemps(character)
+function targets.updateCharRuns(character)
 	local stmt = timedb:prepare("SELECT COUNT(*) FROM runs WHERE character=?")
 	stmt:bind_values(character)
 	stmt:step()
-	targets.updateCDATA(character, "Attempts", stmt[0])
+	targets.updateCDATA(character, "NumRuns", stmt[0])
 	stmt:finalize()
 end
 
@@ -221,59 +221,61 @@ end
 
 function targets.updateCharacterStats(character)
 	targets.updateDisplayMode()
-	targets.updateCharAttemps(character)
+	targets.updateCharRuns(character)
 	targets.getBestTime(character)
 	targets.getSumOfBest(character)
 end
 
-function targets.startAttempt()
+function targets.startRun()
 	local character = targets.getCharacter()
 	local stmt = timedb:prepare("INSERT INTO runs (character) VALUES (?);")
 	stmt:bind_values(character)
 	stmt:step()
 	stmt:finalize()
-	targets.ATTEMPT_ID = timedb:last_insert_rowid()
+	targets.RUN_ID = timedb:last_insert_rowid()
 	targets.updateCharacterStats(character)
-	return targets.ATTEMPT_ID
+	return targets.RUN_ID
 end
 
 function targets.saveSplit(target, frames)
-	targets.newAttempt()
 	targets.TIME_FRAMES[target] = frames
 	local timespent = (targets.TIME_FRAMES[target] or 0) - (targets.TIME_FRAMES[target-1] or 0)
 	local stmt = timedb:prepare("INSERT INTO splits (run, target, tframe, gframe, time) VALUES (?,?,?,?,?);")
-	stmt:bind_values(targets.ATTEMPT_ID, target, memory.match.timer.frame, memory.frame, timespent)
+	stmt:bind_values(targets.RUN_ID, target, memory.match.timer.frame, memory.frame, timespent)
 	stmt:step()
 	stmt:finalize()
+	if target >= 10 then
+		targets.endRun()
+	end
 end
 
 function targets.saveResults()
 	local stmt = timedb:prepare("UPDATE runs SET tframe=?, gframe=?, targets=?, result=? WHERE run=?;")
-	stmt:bind_values(memory.match.timer.frame, memory.frame, 10 - memory.stage.targets, memory.match.result, targets.ATTEMPT_ID)
+	stmt:bind_values(memory.match.timer.frame, memory.frame, 10 - memory.stage.targets, memory.match.result, targets.RUN_ID)
 	stmt:step()
 	stmt:finalize()
 end
 
 function targets.isValidRun()
-	return targets.ATTEMPT_IN_PROGRESS
+	return targets.RUN_IN_PROGRESS
 end
 
-function targets.newAttempt()
+function targets.newRun()
 	if not targets.isValidRun() then
+		log.info("Started run #%d at game frame %d", targets.startRun(), memory.frame)
 		targets.IN_DISPLAY_MENU = nil
 		targets.DISPLAY_MODE = MODE_LAST_RUN
-		targets.ATTEMPT_IN_PROGRESS = true
-		log.info("Started run #%d at game frame %d", targets.startAttempt(), memory.frame)
+		targets.RUN_IN_PROGRESS = true
 		targets.TIME_FRAMES = {}
 		targets.TIME_FRAME = 0
 		targets.BROKEN = 0
 	end
 end
 
-function targets.endAttempt()
+function targets.endRun()
 	if targets.isValidRun() then
-		targets.ATTEMPT_IN_PROGRESS = false
-		log.info("Ended run #%d at frame %d - time %02d.%02d", targets.ATTEMPT_ID, memory.match.timer.frame, getMeleeTimpstamp(memory.match.timer.frame))
+		targets.RUN_IN_PROGRESS = false
+		log.info("Ended run #%d at frame %d - time %02d.%02d", targets.RUN_ID, memory.match.timer.frame, getMeleeTimpstamp(memory.match.timer.frame))
 		targets.saveResults()
 	end
 end
@@ -284,7 +286,7 @@ end)
 
 memory.hook("match.finished", "Targets - Check start of game", function(finished)
 	if finished then
-		targets.endAttempt()
+		targets.endRun()
 	end
 end)
 
@@ -292,8 +294,8 @@ local prev_remain = 0
 
 memory.hook("match.timer.frame", "Targets - Check restart", function(frame)
 	if frame == 0 then
-		targets.endAttempt()
-		targets.newAttempt()
+		targets.endRun()
+		targets.newRun()
 		prev_remain = 10
 	end
 end)
@@ -315,9 +317,9 @@ memory.hook("stage.targets", "Targets - Save Split", function(remain)
 	if decresed and memory.match.finished == false then
 		-- Only log splits when the target count decreases
 		for i=startpos+1, endpos do
-			targets.saveSplit(i, memory.match.timer.frame)
 			-- We can hit more than one target in a single frame, so loop through and mark every single one as hit
 			log.info("Hit target #%d at frame %d - time %02d.%02d", i, memory.match.timer.frame, getMeleeTimpstamp(memory.match.timer.frame))
+			targets.saveSplit(i, memory.match.timer.frame)
 		end
 		targets.BROKEN = endpos
 	end
@@ -375,15 +377,15 @@ function targets.drawSplits()
 	graphics.setColor(255, 255, 255, 255)
 	melee.drawStock(port, 320 - 24 - 8, 8, 0, 24, 24)
 
-	local attnum = string.format("#%d", targets.getCDATA(character, "Attempts") or 0)
+	local runnum = string.format("#%d", targets.getCDATA(character, "NumRuns") or 0)
 
-	local x = 320 - 24 - 12 - FRAME_FONT:getWidth(attnum)
+	local x = 320 - 24 - 12 - FRAME_FONT:getWidth(runnum)
 
 	graphics.setFont(FRAME_FONT)
 	graphics.setColor(0, 0, 0, 255)
-	graphics.print(attnum, x, 14)
+	graphics.print(runnum, x, 14)
 	graphics.setColor(255, 255, 255, 255)
-	graphics.print(attnum, x, 13)
+	graphics.print(runnum, x, 13)
 
 	local frame = targets.isValidRun() and memory.match.timer.frame or (targets.TIME_FRAME or 0)
 
