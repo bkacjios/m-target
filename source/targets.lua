@@ -7,7 +7,7 @@ local targets = {
 	ATTEMPT_IN_PROGRESS = false,
 	CHARACTER_DATA = {},
 	IN_DISPLAY_MENU = nil,
-	DISPLAY_MODE = 0x0,
+	DISPLAY_MODE = 0x1,
 }
 
 local log = require("log")
@@ -162,7 +162,7 @@ function targets.loadPossibleBestRun(character)
 SELECT min(splits.time) as time
 FROM runs
 INNER JOIN splits on splits.run = runs.run
-WHERE runs.character=?
+WHERE runs.character=? AND runs.result=6
 GROUP BY splits.target
 ORDER BY splits.target]])
 	stmt:bind_values(character)
@@ -185,7 +185,7 @@ SELECT SUM(time) FROM (
 	SELECT min(splits.time) AS time
 	FROM runs
 	INNER JOIN splits on splits.run = runs.run
-	WHERE runs.character=?
+	WHERE runs.character=? AND runs.result=6
 	GROUP BY splits.target
 	ORDER BY splits.target
 )]])
@@ -260,9 +260,12 @@ end
 
 function targets.newAttempt()
 	if not targets.isValidRun() then
+		targets.IN_DISPLAY_MENU = nil
+		targets.DISPLAY_MODE = MODE_LAST_RUN
 		targets.ATTEMPT_IN_PROGRESS = true
 		log.info("Started run #%d at game frame %d", targets.startAttempt(), memory.frame)
 		targets.TIME_FRAMES = {}
+		targets.TIME_FRAME = 0
 		targets.BROKEN = 0
 	end
 end
@@ -285,10 +288,23 @@ memory.hook("match.finished", "Targets - Check start of game", function(finished
 	end
 end)
 
-local prev_remain = -1
+local prev_remain = 0
+
+memory.hook("match.timer.frame", "Targets - Check restart", function(frame)
+	if frame == 0 then
+		targets.endAttempt()
+		targets.newAttempt()
+		prev_remain = 10
+	end
+end)
+
 memory.hook("stage.targets", "Targets - Save Split", function(remain)
+	local frame = memory.match.timer.frame
+
+	-- Ignore when hitting 0 or 10 at frame 0, this is usally when loading into the target test or retrying
+	if (remain == 10 or remain == 0) and frame == 0 then return end
+
 	local count = prev_remain - remain
-	local reset = memory.match.timer.frame == 0 and count > 1
 	local decresed = prev_remain > remain
 
 	local endpos = 10-remain
@@ -296,7 +312,7 @@ memory.hook("stage.targets", "Targets - Save Split", function(remain)
 
 	prev_remain = remain
 
-	if decresed and memory.match.finished == false and not reset then
+	if decresed and memory.match.finished == false then
 		-- Only log splits when the target count decreases
 		for i=startpos+1, endpos do
 			targets.saveSplit(i, memory.match.timer.frame)
@@ -305,18 +321,6 @@ memory.hook("stage.targets", "Targets - Save Split", function(remain)
 		end
 		targets.BROKEN = endpos
 	end
-end)
-
-memory.hook("match.playing", "Targets - Get End Time", function(playing)
-	if playing then
-		targets.newAttempt()
-	elseif not playing then
-		targets.endAttempt()
-	end
-end)
-
-memory.hook("match.result", "Targets - Check Complete", function(result)
-	--targets.endAttempt()
 end)
 
 local DPAD = {
