@@ -33,7 +33,7 @@ local RESULT_COMPLETE	= 0x6	-- Successfully hit all targets
 local RESULT_LRAS		= 0x7	-- Quit using L+R+A+Start
 local RESULT_RESET		= 0x8	-- Reset using Z
 
-local MODE_LAST_RUN = 0x0
+local MODE_LAST_FAILED = 0x0
 local MODE_LAST_COMPLETE = 0x1
 local MODE_PB = 0x2
 local MODE_BEST = 0x03
@@ -106,11 +106,11 @@ function targets.getBestTime(character)
 	return data
 end
 
-function targets.loadLastRun(character)
+function targets.loadLastFailedRun(character)
 	local stmt = timedb:prepare([[
 SELECT tframe
 FROM splits
-WHERE run = (SELECT run FROM runs WHERE character=? ORDER BY run DESC LIMIT 1)
+WHERE run = (SELECT run FROM runs WHERE character=? AND result<>6 ORDER BY run DESC LIMIT 1)
 ORDER BY target;]])
 	stmt:bind_values(character)
 
@@ -206,8 +206,8 @@ end
 function targets.updateDisplayMode()
 	local character = targets.getCharacter()
 	local mode = targets.DISPLAY_MODE
-	if mode == MODE_LAST_RUN then
-		targets.loadLastRun(character)
+	if mode == MODE_LAST_FAILED then
+		targets.loadLastFailedRun(character)
 	elseif mode == MODE_LAST_COMPLETE then
 		targets.loadLastCompleteRun(character)
 	elseif mode == MODE_PB then
@@ -245,13 +245,17 @@ function targets.saveSplit(target, frames)
 	stmt:step()
 	stmt:finalize()
 	if target >= 10 then
-		targets.endRun()
+		-- We force the RESULT_COMPLETE here instead of a match.result hook.
+		-- This is because sometimes resetting back to RESULT_NONE is too fast for us to catch.
+		-- So if you did two complete runs in a row, the change will never be detected
+		-- and we would get stuck in a infinite run
+		targets.endRun(RESULT_COMPLETE)
 	end
 end
 
-function targets.saveResults()
+function targets.saveResults(result)
 	local stmt = timedb:prepare("UPDATE runs SET tframe=?, gframe=?, targets=?, result=? WHERE run=?;")
-	stmt:bind_values(memory.match.timer.frame, memory.frame, 10 - memory.stage.targets, memory.match.result, targets.RUN_ID)
+	stmt:bind_values(memory.match.timer.frame, memory.frame, 10 - memory.stage.targets, result or memory.match.result, targets.RUN_ID)
 	stmt:step()
 	stmt:finalize()
 end
@@ -264,7 +268,7 @@ function targets.newRun()
 	if not targets.isValidRun() then
 		log.info("Started run #%d at game frame %d", targets.startRun(), memory.frame)
 		targets.IN_DISPLAY_MENU = nil
-		targets.DISPLAY_MODE = MODE_LAST_RUN
+		targets.DISPLAY_MODE = MODE_LAST_FAILED
 		targets.RUN_IN_PROGRESS = true
 		targets.TIME_FRAMES = {}
 		targets.TIME_FRAME = 0
@@ -272,11 +276,11 @@ function targets.newRun()
 	end
 end
 
-function targets.endRun()
+function targets.endRun(result)
 	if targets.isValidRun() then
 		targets.RUN_IN_PROGRESS = false
 		log.info("Ended run #%d at frame %d - time %02d.%02d", targets.RUN_ID, memory.match.timer.frame, getMeleeTimpstamp(memory.match.timer.frame))
-		targets.saveResults()
+		targets.saveResults(result)
 	end
 end
 
@@ -284,9 +288,9 @@ memory.hook("player.1.select.character", "Targets - Update Count", function(char
 	targets.updateCharacterStats(character)
 end)
 
-memory.hook("match.finished", "Targets - Check start of game", function(finished)
-	if finished then
-		targets.endRun()
+memory.hook("match.result", "Targets - Check start of game", function(result)
+	if result ~= RESULT_NONE then
+		targets.endRun(result)
 	end
 end)
 
@@ -326,7 +330,7 @@ memory.hook("stage.targets", "Targets - Save Split", function(remain)
 end)
 
 local DPAD = {
-	[0x1] = MODE_LAST_RUN,		-- LEFT
+	[0x1] = MODE_LAST_FAILED,		-- LEFT
 	[0x2] = MODE_LAST_COMPLETE,	-- RIGHT
 	[0x4] = MODE_BEST,			-- DOWN
 	[0x8] = MODE_PB,			-- UP
