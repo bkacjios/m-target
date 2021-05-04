@@ -1,5 +1,6 @@
 local targets = {
 	TIME_FRAMES = {},
+	TIME_FRAMES_PB = {},
 	TIME_FRAME = 0,
 	BROKEN = 0,
 	PREV_BROKEN_FRAME = 0,
@@ -148,11 +149,13 @@ WHERE run = (SELECT run FROM runs WHERE character=? AND result=6 ORDER BY gframe
 ORDER BY target;]])
 	stmt:bind_values(character)
 
-	targets.TIME_FRAMES = {}
+	targets.TIME_FRAMES_PB = {}
 
 	for row in stmt:rows() do
-		table.insert(targets.TIME_FRAMES, row[1])
+		table.insert(targets.TIME_FRAMES_PB, row[1])
 	end
+
+	targets.TIME_FRAMES = targets.TIME_FRAMES_PB
 
 	stmt:finalize()
 end
@@ -233,11 +236,11 @@ function targets.startRun()
 	stmt:step()
 	stmt:finalize()
 	targets.RUN_ID = timedb:last_insert_rowid()
-	targets.updateCharacterStats(character)
 	return targets.RUN_ID
 end
 
 function targets.saveSplit(target, frames)
+	targets.newRun()
 	targets.TIME_FRAMES[target] = frames
 	local timespent = (targets.TIME_FRAMES[target] or 0) - (targets.TIME_FRAMES[target-1] or 0)
 	local stmt = timedb:prepare("INSERT INTO splits (run, target, tframe, gframe, time) VALUES (?,?,?,?,?);")
@@ -281,6 +284,7 @@ function targets.endRun(result)
 		targets.RUN_IN_PROGRESS = false
 		log.info("Ended run #%d at frame %d - time %02d.%02d", targets.RUN_ID, memory.match.timer.frame, getMeleeTimpstamp(memory.match.timer.frame))
 		targets.saveResults(result)
+		targets.updateCharacterStats(character)
 	end
 end
 
@@ -330,7 +334,7 @@ memory.hook("stage.targets", "Targets - Save Split", function(remain)
 end)
 
 local DPAD = {
-	[0x1] = MODE_LAST_FAILED,		-- LEFT
+	[0x1] = MODE_LAST_FAILED,	-- LEFT
 	[0x2] = MODE_LAST_COMPLETE,	-- RIGHT
 	[0x4] = MODE_BEST,			-- DOWN
 	[0x8] = MODE_PB,			-- UP
@@ -372,7 +376,6 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords)
 ]]
 
 function targets.drawSplits()
-
 	local port = targets.getActivePort()
 	local character = targets.getCharacter()
 
