@@ -58,4 +58,4 @@ Source: "build/x64/sqlite3.dll"; DestDir: "{app}"; DestName: "sqlite3.dll"; Flag
 Name: "{group}\{#AppName}"; Filename: "{app}\m-target-64.exe"
 
 [Run]
-Filename: {app}\m-overlay-64.exe; Description: "Launch {#AppName}"; Flags: postinstall shellexec skipifsilent nowait
+Filename: {app}\m-target-64.exe; Description: "Launch {#AppName}"; Flags: postinstall shellexec skipifsilent nowait
