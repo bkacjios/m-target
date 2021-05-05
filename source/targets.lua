@@ -37,7 +37,8 @@ local RESULT_RESET		= 0x8	-- Reset using Z
 local MODE_LAST_FAILED = 0x0
 local MODE_LAST_COMPLETE = 0x1
 local MODE_PB = 0x2
-local MODE_BEST = 0x03
+local MODE_BEST = 0x3
+local MODE_LAST = 0x4
 
 local function getMeleeTimpstamp(frame)
 	local duration = frame/60
@@ -118,7 +119,7 @@ ORDER BY target;]])
 	targets.TIME_FRAMES = {}
 
 	for row in stmt:rows() do
-		table.insert(targets.TIME_FRAMES, row[1])
+		table.insert(targets.TIME_FRAMES, row[0])
 	end
 
 	stmt:finalize()
@@ -135,7 +136,24 @@ ORDER BY target;]])
 	targets.TIME_FRAMES = {}
 
 	for row in stmt:rows() do
-		table.insert(targets.TIME_FRAMES, row[1])
+		table.insert(targets.TIME_FRAMES, row[0])
+	end
+
+	stmt:finalize()
+end
+
+function targets.loadLastRun(character)
+	local stmt = timedb:prepare([[
+SELECT tframe
+FROM splits
+WHERE run = (SELECT run FROM runs WHERE character=? ORDER BY run DESC LIMIT 1)
+ORDER BY target;]])
+	stmt:bind_values(character)
+
+	targets.TIME_FRAMES = {}
+
+	for row in stmt:rows() do
+		table.insert(targets.TIME_FRAMES, row[0])
 	end
 
 	stmt:finalize()
@@ -149,13 +167,13 @@ WHERE run = (SELECT run FROM runs WHERE character=? AND result=6 ORDER BY gframe
 ORDER BY target;]])
 	stmt:bind_values(character)
 
+	targets.TIME_FRAMES = {}
 	targets.TIME_FRAMES_PB = {}
 
 	for row in stmt:rows() do
-		table.insert(targets.TIME_FRAMES_PB, row[1])
+		table.insert(targets.TIME_FRAMES, row[0])
+		table.insert(targets.TIME_FRAMES_PB, row[0])
 	end
-
-	targets.TIME_FRAMES = targets.TIME_FRAMES_PB
 
 	stmt:finalize()
 end
@@ -217,16 +235,20 @@ function targets.updateDisplayMode()
 		targets.loadPersonalBestRun(character)
 	elseif mode == MODE_BEST then
 		targets.loadPossibleBestRun(character)
+	elseif mode == MODE_LAST then
+		targets.loadLastRun(character)
 	end
 	targets.BROKEN = #targets.TIME_FRAMES
 	targets.TIME_FRAME = targets.TIME_FRAMES[#targets.TIME_FRAMES]
 end
 
-function targets.updateCharacterStats(character)
-	targets.updateDisplayMode()
+function targets.updateCharacterStats()
+	local character = targets.getCharacter()
+	targets.loadPersonalBestRun(character)
 	targets.updateCharRuns(character)
 	targets.getBestTime(character)
 	targets.getSumOfBest(character)
+	targets.updateDisplayMode()
 end
 
 function targets.startRun()
@@ -271,7 +293,7 @@ function targets.newRun()
 	if not targets.isValidRun() then
 		log.info("Started run #%d at game frame %d", targets.startRun(), memory.frame)
 		targets.IN_DISPLAY_MENU = nil
-		targets.DISPLAY_MODE = MODE_LAST_FAILED
+		targets.DISPLAY_MODE = MODE_LAST
 		targets.RUN_IN_PROGRESS = true
 		targets.TIME_FRAMES = {}
 		targets.TIME_FRAME = 0
@@ -284,12 +306,12 @@ function targets.endRun(result)
 		targets.RUN_IN_PROGRESS = false
 		log.info("Ended run #%d at frame %d - time %02d.%02d", targets.RUN_ID, memory.match.timer.frame, getMeleeTimpstamp(memory.match.timer.frame))
 		targets.saveResults(result)
-		targets.updateCharacterStats(character)
+		targets.updateCharacterStats()
 	end
 end
 
 memory.hook("player.1.select.character", "Targets - Update Count", function(character)
-	targets.updateCharacterStats(character)
+	targets.updateCharacterStats()
 end)
 
 memory.hook("match.result", "Targets - Check start of game", function(result)
@@ -460,7 +482,7 @@ function targets.drawSplits()
 		if t then
 			local seconds, ms = getMeleeTimpstamp(t)
 
-			local secstr = string.format("%d", seconds)
+			local secstr = string.format("%4d", seconds)
 			local msstr = string.format(".%02d", ms)
 
 			local secw = SPLIT_SEC:getWidth(secstr)
@@ -477,6 +499,39 @@ function targets.drawSplits()
 			graphics.print(msstr, 320 - 8 - totalw + secw, y+5)
 			graphics.setColor(255, 255, 255, 255)
 			graphics.print(msstr, 320 - 8 - totalw + secw, y+4)
+
+			local bt = targets.TIME_FRAMES_PB[i] or t
+			local dt = t - bt
+
+			if dt ~= 0 then
+				local seconds, ms = getMeleeTimpstamp(dt)
+
+				local secstr = string.format("%+d", seconds)
+				local msstr = string.format(".%02d", ms)
+
+				local bsecw = SPLIT_SEC:getWidth(secstr)
+				local btotalw = bsecw + SPLIT_MS:getWidth(msstr)
+
+				graphics.setFont(SPLIT_SEC)
+				graphics.setColor(0, 0, 0, 255)
+				graphics.print(secstr, 320 - 8 - totalw - 8 - btotalw, y)
+				if dt > 0 then
+					graphics.setColor(225, 0, 0, 255)
+				else
+					graphics.setColor(0, 155, 40, 255)
+				end
+				graphics.print(secstr, 320 - 8 - totalw - 8 - btotalw, y-1)
+
+				graphics.setFont(SPLIT_MS)
+				graphics.setColor(0, 0, 0, 255)
+				graphics.print(msstr, 320 - 8 - totalw - 8 - btotalw + bsecw, y+5)
+				if dt > 0 then
+					graphics.setColor(225, 0, 0, 255)
+				else
+					graphics.setColor(0, 155, 40, 255)
+				end
+				graphics.print(msstr, 320 - 8 - totalw - 8 - btotalw + bsecw, y+4)
+			end
 		end
 	end
 

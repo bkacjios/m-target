@@ -3,7 +3,7 @@
 # m-targets
 *An automatic split timer for Super Smash Brothers Melee's Target Test, for use with Dolphin specifically.*
 
-![M'Targets in use](https://i.imgur.com/fVS1vKX.png)
+![M'Targets in use](https://i.imgur.com/qvrhI3T.png)
 
 ### Downloads
 

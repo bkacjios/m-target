@@ -1268,7 +1268,7 @@ end
 function sqlite_stmt:get_names()
 	local tbl = {}
 	for i=0,sqlite3.sqlite3_column_count(self.stmt)-1 do
-		tbl[i+1] = self:get_name(i)
+		tbl[i] = self:get_name(i)
 	end
 	return tbl
 end
@@ -1276,7 +1276,7 @@ end
 function sqlite_stmt:get_values()
 	local tbl = {}
 	for i=0,sqlite3.sqlite3_column_count(self.stmt)-1 do
-		tbl[i+1] = self:get_value(i)
+		tbl[i] = self:get_value(i)
 	end
 	return tbl
 end
