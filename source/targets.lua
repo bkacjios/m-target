@@ -5,10 +5,11 @@ local targets = {
 	BROKEN = 0,
 	PREV_BROKEN_FRAME = 0,
 	RUN_ID = nil,
+	RUN_NUM = 0,
 	RUN_IN_PROGRESS = false,
 	CHARACTER_DATA = {},
 	IN_DISPLAY_MENU = nil,
-	DISPLAY_MODE = 0x1,
+	DISPLAY_MODE = 0x4,
 }
 
 local log = require("log")
@@ -28,17 +29,21 @@ local TARGET = graphics.newImage("textures/target.png")
 
 local DPAD_GATE = graphics.newImage("textures/buttons/d-pad-gate-filled.png")
 
+local L_PRESSED = graphics.newImage("textures/buttons/l-pressed.png")
+local R_PRESSED = graphics.newImage("textures/buttons/r-pressed.png")
+
 local RESULT_NONE		= 0x0	-- Set at the start
 local RESULT_FAILURE	= 0x4	-- Fell off the stage
 local RESULT_COMPLETE	= 0x6	-- Successfully hit all targets
 local RESULT_LRAS		= 0x7	-- Quit using L+R+A+Start
 local RESULT_RESET		= 0x8	-- Reset using Z
 
-local MODE_LAST_FAILED = 0x0
-local MODE_LAST_COMPLETE = 0x1
+local MODE_PREV = 0x0
+local MODE_NEXT = 0x1
 local MODE_PB = 0x2
 local MODE_BEST = 0x3
 local MODE_LAST = 0x4
+local MODE_LAST_COMPLETE = 0x5
 
 local function getMeleeTimpstamp(frame)
 	local duration = frame/60
@@ -89,11 +94,11 @@ function targets.getCDATA(character, name)
 	end
 end
 
-function targets.updateCharRuns(character)
-	local stmt = timedb:prepare("SELECT COUNT(*) FROM runs WHERE character=?")
-	stmt:bind_values(character)
+function targets.updateCharRuns(character, id)
+	local stmt = timedb:prepare("SELECT COUNT(*) FROM runs WHERE character=? AND run<=?")
+	stmt:bind_values(character, id or targets.RUN_ID)
 	stmt:step()
-	targets.updateCDATA(character, "NumRuns", stmt[0])
+	targets.RUN_NUM = stmt[0]
 	stmt:finalize()
 end
 
@@ -108,74 +113,107 @@ function targets.getBestTime(character)
 	return data
 end
 
-function targets.loadLastFailedRun(character)
-	local stmt = timedb:prepare([[
-SELECT tframe
-FROM splits
-WHERE run = (SELECT run FROM runs WHERE character=? AND result<>6 ORDER BY run DESC LIMIT 1)
-ORDER BY target;]])
+function targets.getLastRunID(character)
+	local stmt = timedb:prepare("SELECT run FROM runs WHERE character=? ORDER BY run DESC LIMIT 1;")
 	stmt:bind_values(character)
-
-	targets.TIME_FRAMES = {}
-
-	for row in stmt:rows() do
-		table.insert(targets.TIME_FRAMES, row[0])
-	end
-
+	stmt:step()
+	local lid = stmt[0]
 	stmt:finalize()
+	return lid
 end
 
-function targets.loadLastCompleteRun(character)
-	local stmt = timedb:prepare([[
-SELECT tframe
-FROM splits
-WHERE run = (SELECT run FROM runs WHERE character=? AND result=6 ORDER BY run DESC LIMIT 1)
-ORDER BY target;]])
+function targets.getPrevCompletedRunID(character, id)
+	local stmt = timedb:prepare("SELECT run FROM runs WHERE character=? AND result=6 AND run<? ORDER BY run DESC LIMIT 1;")
+	stmt:bind_values(character, id)
+	stmt:step()
+	local lid = stmt[0]
+	stmt:finalize()
+	return lid or id
+end
+
+function targets.getPrevRunID(character, id)
+	local stmt = timedb:prepare("SELECT run FROM runs WHERE character=? AND run<? ORDER BY run DESC LIMIT 1;")
+	stmt:bind_values(character, id)
+	stmt:step()
+	local pid = stmt[0]
+	stmt:finalize()
+	return pid or id
+end
+
+function targets.getNextRunID(character, id)
+	local stmt = timedb:prepare("SELECT run FROM runs WHERE character=? AND run>? ORDER BY run ASC LIMIT 1;")
+	stmt:bind_values(character, id)
+	stmt:step()
+	local nid = stmt[0]
+	stmt:finalize()
+	return nid or id
+end
+
+function targets.getPersonalBestRunID(character)
+	local stmt = timedb:prepare("SELECT run FROM runs WHERE character=? AND result=6 ORDER BY gframe LIMIT 1;")
 	stmt:bind_values(character)
+	stmt:step()
+	local pbid = stmt[0]
+	stmt:finalize()
+	return pbid or id
+end
+
+function targets.loadRun(runid)
+	targets.RUN_ID = runid
+
+	local stmt = timedb:prepare([[
+SELECT run, tframe
+FROM splits
+WHERE run = ?
+ORDER BY target;]])
+	stmt:bind_values(runid)
 
 	targets.TIME_FRAMES = {}
 
-	for row in stmt:rows() do
-		table.insert(targets.TIME_FRAMES, row[0])
+	for row in stmt:nrows() do
+		table.insert(targets.TIME_FRAMES, row.tframe)
 	end
 
 	stmt:finalize()
 end
 
 function targets.loadLastRun(character)
-	local stmt = timedb:prepare([[
-SELECT tframe
-FROM splits
-WHERE run = (SELECT run FROM runs WHERE character=? ORDER BY run DESC LIMIT 1)
-ORDER BY target;]])
-	stmt:bind_values(character)
+	local lastid = targets.getLastRunID(character)
+	if not lastid then return end
+	targets.loadRun(lastid)
+	targets.updateCharRuns(character, lastid)
+end
 
-	targets.TIME_FRAMES = {}
+function targets.loadPrevRun(character)
+	local previd = targets.getPrevRunID(character, targets.RUN_ID)
+	if not previd then return end
+	targets.loadRun(previd)
+	targets.updateCharRuns(character, previd)
+end
 
-	for row in stmt:rows() do
-		table.insert(targets.TIME_FRAMES, row[0])
-	end
+function targets.loadPrevCompletedRun(character)
+	local previd = targets.getPrevCompletedRunID(character, targets.RUN_ID)
+	if not previd then return end
+	targets.loadRun(previd)
+	targets.updateCharRuns(character, previd)
+end
 
-	stmt:finalize()
+function targets.loadNextRun(character)
+	local nextid = targets.getNextRunID(character, targets.RUN_ID)
+	if not nextid then return end
+	targets.loadRun(nextid)
+	targets.updateCharRuns(character, nextid)
 end
 
 function targets.loadPersonalBestRun(character)
-	local stmt = timedb:prepare([[
-SELECT tframe
-FROM splits
-WHERE run = (SELECT run FROM runs WHERE character=? AND result=6 ORDER BY gframe LIMIT 1)
-ORDER BY target;]])
-	stmt:bind_values(character)
+	local pbid = targets.getPersonalBestRunID(character)
+	if not pbid then return end
+	targets.loadRun(pbid)
+	targets.updateCharRuns(character, pbid)
 
-	targets.TIME_FRAMES = {}
-	targets.TIME_FRAMES_PB = {}
-
-	for row in stmt:rows() do
-		table.insert(targets.TIME_FRAMES, row[0])
-		table.insert(targets.TIME_FRAMES_PB, row[0])
+	for k,v in pairs(targets.TIME_FRAMES) do
+		targets.TIME_FRAMES_PB[k] = v
 	end
-
-	stmt:finalize()
 end
 
 function targets.loadPossibleBestRun(character)
@@ -189,6 +227,7 @@ ORDER BY splits.target]])
 	stmt:bind_values(character)
 
 	targets.TIME_FRAMES = {}
+	targets.RUN_NUM = 0
 
 	local tframe = 0
 
@@ -227,16 +266,18 @@ end
 function targets.updateDisplayMode()
 	local character = targets.getCharacter()
 	local mode = targets.DISPLAY_MODE
-	if mode == MODE_LAST_FAILED then
-		targets.loadLastFailedRun(character)
-	elseif mode == MODE_LAST_COMPLETE then
-		targets.loadLastCompleteRun(character)
+	if mode == MODE_PREV then
+		targets.loadPrevRun(character)
+	elseif mode == MODE_NEXT then
+		targets.loadNextRun(character)
 	elseif mode == MODE_PB then
 		targets.loadPersonalBestRun(character)
 	elseif mode == MODE_BEST then
 		targets.loadPossibleBestRun(character)
 	elseif mode == MODE_LAST then
 		targets.loadLastRun(character)
+	elseif mode == MODE_LAST_COMPLETE then
+		targets.loadPrevCompletedRun(character)
 	end
 	targets.BROKEN = #targets.TIME_FRAMES
 	targets.TIME_FRAME = targets.TIME_FRAMES[#targets.TIME_FRAMES]
@@ -258,6 +299,7 @@ function targets.startRun()
 	stmt:step()
 	stmt:finalize()
 	targets.RUN_ID = timedb:last_insert_rowid()
+	targets.updateCharRuns(character, targets.RUN_ID)
 	return targets.RUN_ID
 end
 
@@ -355,11 +397,13 @@ memory.hook("stage.targets", "Targets - Save Split", function(remain)
 	end
 end)
 
-local DPAD = {
-	[0x1] = MODE_LAST_FAILED,	-- LEFT
-	[0x2] = MODE_LAST_COMPLETE,	-- RIGHT
-	[0x4] = MODE_BEST,			-- DOWN
-	[0x8] = MODE_PB,			-- UP
+local MENU_BUTTONS = {
+	[0x1] = MODE_PREV,	-- LEFT
+	[0x2] = MODE_NEXT,	-- RIGHT
+	[0x4] = MODE_BEST,	-- DOWN
+	[0x8] = MODE_PB,	-- UP
+	[0x20] = MODE_LAST, -- RIGHT TRIGGER
+	[0x40] = MODE_LAST_COMPLETE, -- LEFT TRIGGER
 }
 
 local MENU_TEXT = graphics.newImage("textures/buttons/labels.png")
@@ -374,11 +418,16 @@ local DPAD_TEXTURES = {
 memory.hook("controller.*.buttons.pressed", "Targets - Mode Switcher", function(port, pressed)
 	if port ~= targets.getActivePort() or targets.isValidRun() then return end
 
-	if DPAD[pressed] then
-		targets.IN_DISPLAY_MENU = DPAD[pressed]
-	elseif targets.IN_DISPLAY_MENU and pressed == 0x0 then
+	if targets.IN_DISPLAY_MENU and pressed == 0x0 then
 		targets.setDisplayMode(targets.IN_DISPLAY_MENU)
 		targets.IN_DISPLAY_MENU = nil
+	else
+		for but, mode in pairs(MENU_BUTTONS) do
+			if bit.band(pressed, but) == but then
+				targets.IN_DISPLAY_MENU = mode
+				break
+			end
+		end
 	end
 end)
 
@@ -406,7 +455,7 @@ function targets.drawSplits()
 	graphics.setColor(255, 255, 255, 255)
 	melee.drawStock(port, 320 - 24 - 8, 8, 0, 24, 24)
 
-	local runnum = string.format("#%d", targets.getCDATA(character, "NumRuns") or 0)
+	local runnum = string.format("#%d", targets.RUN_NUM or 0)
 
 	local x = 320 - 24 - 12 - FRAME_FONT:getWidth(runnum)
 
@@ -578,9 +627,21 @@ function targets.drawSplits()
 	graphics.print(msstr, 4 + secw, 448 - 18)
 
 	if targets.IN_DISPLAY_MENU ~= nil then
+		graphics.setColor(0, 0, 0, 200)
+		graphics.rectangle("fill", 0, 0, 320, 448)
+
+		graphics.setColor(255, 255, 255, 255)
+
 		local controller = memory.controller[port].buttons
-		graphics.easyDraw(DPAD_GATE, 320/2, 448/2, 0, 128, 128, 0.5, 0.5)
-		graphics.easyDraw(MENU_TEXT, 320/2, 448/2, 0, 320, 320, 0.5, 0.5)
+		graphics.easyDraw(MENU_TEXT, 320/2, 448/2, 0, 320, 448, 0.5, 0.5)
+
+		if bit.band(controller.pressed, 0x40) == 0x40 then
+			graphics.easyDraw(L_PRESSED, 0, 0, 0, 160, 112)
+		end
+		if bit.band(controller.pressed, 0x20) == 0x20 then
+			graphics.easyDraw(R_PRESSED, 160, 0, 0, 160, 112)
+		end
+
 		for mask, tex in pairs(DPAD_TEXTURES) do
 			if bit.band(controller.pressed, mask) == mask then
 				graphics.easyDraw(tex, 320/2, 448/2, 0, 128, 128, 0.5, 0.5)
