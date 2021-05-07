@@ -552,35 +552,38 @@ function targets.drawSplits()
 			local bt = targets.TIME_FRAMES_PB[i] or t
 			local dt = t - bt
 
-			if dt ~= 0 then
-				local seconds, ms = getMeleeTimpstamp(dt)
+			local seconds, ms = getMeleeTimpstamp(dt)
 
-				local secstr = string.format("%+d", seconds)
-				local msstr = string.format(".%02d", ms)
+			local secstr = string.format("%+d", seconds)
+			local msstr = string.format(".%02d", ms)
 
-				local bsecw = SPLIT_SEC:getWidth(secstr)
-				local btotalw = bsecw + SPLIT_MS:getWidth(msstr)
+			local bsecw = SPLIT_SEC:getWidth(secstr)
+			local btotalw = bsecw + SPLIT_MS:getWidth(msstr)
 
-				graphics.setFont(SPLIT_SEC)
-				graphics.setColor(0, 0, 0, 255)
-				graphics.print(secstr, 320 - 8 - totalw - 8 - btotalw, y)
-				if dt > 0 then
-					graphics.setColor(225, 0, 0, 255)
-				else
-					graphics.setColor(0, 155, 40, 255)
-				end
-				graphics.print(secstr, 320 - 8 - totalw - 8 - btotalw, y-1)
+			graphics.setFont(SPLIT_SEC)
+			graphics.setColor(0, 0, 0, 255)
+			graphics.print(secstr, 320 - 8 - totalw - 8 - btotalw, y)
 
-				graphics.setFont(SPLIT_MS)
-				graphics.setColor(0, 0, 0, 255)
-				graphics.print(msstr, 320 - 8 - totalw - 8 - btotalw + bsecw, y+5)
-				if dt > 0 then
-					graphics.setColor(225, 0, 0, 255)
-				else
-					graphics.setColor(0, 155, 40, 255)
-				end
-				graphics.print(msstr, 320 - 8 - totalw - 8 - btotalw + bsecw, y+4)
+			if dt > 0 then
+				graphics.setColor(225, 0, 0, 255)
+			elseif dt == 0 then
+				graphics.setColor(155, 155, 155, 255)
+			elseif dt < 0 then
+				graphics.setColor(0, 155, 40, 255)
 			end
+			graphics.print(secstr, 320 - 8 - totalw - 8 - btotalw, y-1)
+
+			graphics.setFont(SPLIT_MS)
+			graphics.setColor(0, 0, 0, 255)
+			graphics.print(msstr, 320 - 8 - totalw - 8 - btotalw + bsecw, y+5)
+			if dt > 0 then
+				graphics.setColor(225, 0, 0, 255)
+			elseif dt == 0 then
+				graphics.setColor(155, 155, 155, 255)
+			elseif dt < 0 then
+				graphics.setColor(0, 155, 40, 255)
+			end
+			graphics.print(msstr, 320 - 8 - totalw - 8 - btotalw + bsecw, y+4)
 		end
 	end
 
