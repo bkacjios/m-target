@@ -49,8 +49,8 @@ local function getMeleeTimpstamp(frame)
 	local duration = frame/60
 	local minutes = math.floor(duration/60)
 	local seconds = math.floor(duration)
-	local ms = (frame % 60) * 100 / 60
-	return seconds, math.floor(ms)
+	local ms = math.floor((frame%60)*99/59)
+	return seconds, ms
 end
 
 local timedb = lsqlite3.open(string.format("%s/time.db", love.filesystem.getSaveDirectory()))
