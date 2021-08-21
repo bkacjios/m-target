@@ -416,7 +416,8 @@ local DPAD_TEXTURES = {
 }
 
 memory.hook("controller.*.buttons.pressed", "Targets - Mode Switcher", function(port, pressed)
-	if port ~= targets.getActivePort() or targets.isValidRun() then return end
+	-- Only allow split traversal when we are paused or in the menus
+	if not melee.isInMenus() and not targets.isPaused() then return end
 
 	if targets.IN_DISPLAY_MENU and pressed == 0x0 then
 		targets.setDisplayMode(targets.IN_DISPLAY_MENU)
