@@ -25,14 +25,14 @@ AppSupportURL=https://github.com/bkacjios/m-target/issues
 WizardStyle=modern
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
-UninstallDisplayIcon={app}\m-targets-64.exe
+UninstallDisplayIcon={app}\m-target-x64.exe
 SetupIconFile=installer/icon.ico
 WizardImageFile=installer/wizardbanner.bmp
 WizardSmallImageFile=installer/wizard.bmp
 Compression=lzma2
 SolidCompression=yes
 OutputDir=./releases
-OutputBaseFilename={#AppName} - installer ({#AppVersion})
+OutputBaseFilename=m-target-x64-installer
 ; "ArchitecturesAllowed=x64" specifies that Setup cannot run on
 ; anything but x64.
 ArchitecturesAllowed=x64
@@ -44,7 +44,7 @@ LicenseFile=build/x64/license.txt
 
 [Files]                                
 Source: "build/x64/license.txt"; DestDir: "{app}"; DestName: "license.txt"; Flags: ignoreversion                                    
-Source: "build/x64/m-target-x64.exe"; DestDir: "{app}"; DestName: "m-target-64.exe"; Flags: ignoreversion       
+Source: "build/x64/m-target-x64.exe"; DestDir: "{app}"; DestName: "m-target-x64.exe"; Flags: ignoreversion       
 Source: "build/x64/love.dll"; DestDir: "{app}"; DestName: "love.dll"; Flags: ignoreversion
 Source: "build/x64/lua51.dll"; DestDir: "{app}"; DestName: "lua51.dll"; Flags: ignoreversion
 Source: "build/x64/mpg123.dll"; DestDir: "{app}"; DestName: "mpg123.dll"; Flags: ignoreversion
@@ -54,8 +54,18 @@ Source: "build/x64/OpenAL32.dll"; DestDir: "{app}"; DestName: "OpenAL32.dll"; Fl
 Source: "build/x64/SDL2.dll"; DestDir: "{app}"; DestName: "SDL2.dll"; Flags: ignoreversion
 Source: "build/x64/sqlite3.dll"; DestDir: "{app}"; DestName: "sqlite3.dll"; Flags: ignoreversion
 
+[InstallDelete]
+Type: files; Name: {app}\m-target-64.exe
+
+
+[Tasks]
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; \
+    GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+
 [Icons]
-Name: "{group}\{#AppName}"; Filename: "{app}\m-target-64.exe"
+Name: "{group}\{#AppName}"; Filename: "{app}\m-target-x64.exe"
+Name: "{commondesktop}\{#AppName}"; Filename: "{app}\m-target-x64.exe"; \
+    Tasks: desktopicon
 
 [Run]
-Filename: {app}\m-target-64.exe; Description: "Launch {#AppName}"; Flags: postinstall shellexec skipifsilent nowait
+Filename: {app}\m-target-x64.exe; Description: "Launch {#AppName}"; Flags: postinstall shellexec skipifsilent nowait
