@@ -45,7 +45,7 @@ local MODE_BEST = 0x3
 local MODE_LAST = 0x4
 local MODE_LAST_COMPLETE = 0x5
 
-local function getMeleeTimpstamp(frame)
+local function getMeleeTimestamp(frame)
 	local duration = frame/60
 	local minutes = math.floor(duration/60)
 	local seconds = math.floor(duration)
@@ -79,6 +79,18 @@ end
 
 function targets.getActivePort()
 	return memory.menu.player_one_port+1
+end
+
+function targets.isInBTT()
+	return memory.menu.major == MENU_TARGET_TEST
+end
+
+function targets.isInBTTCharacterSelect()
+	return targets.isInBTT() and memory.menu.minor == MENU_TARGET_TEST_CSS
+end
+
+function targets.isPaused()
+	return memory.match.paused
 end
 
 function targets.updateCDATA(character, name, data)
@@ -346,7 +358,7 @@ end
 function targets.endRun(result)
 	if targets.isValidRun() then
 		targets.RUN_IN_PROGRESS = false
-		log.info("Ended run #%d at frame %d - time %02d.%02d", targets.RUN_ID, memory.match.timer.frame, getMeleeTimpstamp(memory.match.timer.frame))
+		log.info("Ended run #%d at frame %d - time %02d.%02d", targets.RUN_ID, memory.match.timer.frame, getMeleeTimestamp(memory.match.timer.frame))
 		targets.saveResults(result)
 		targets.updateCharacterStats()
 	end
@@ -390,7 +402,7 @@ memory.hook("stage.targets", "Targets - Save Split", function(remain)
 		-- Only log splits when the target count decreases
 		for i=startpos+1, endpos do
 			-- We can hit more than one target in a single frame, so loop through and mark every single one as hit
-			log.info("Hit target #%d at frame %d - time %02d.%02d", i, memory.match.timer.frame, getMeleeTimpstamp(memory.match.timer.frame))
+			log.info("Hit target #%d at frame %d - time %02d.%02d", i, memory.match.timer.frame, getMeleeTimestamp(memory.match.timer.frame))
 			targets.saveSplit(i, memory.match.timer.frame)
 		end
 		targets.BROKEN = endpos
@@ -474,7 +486,7 @@ function targets.drawSplits()
 	graphics.setColor(255, 255, 255, 255)
 	graphics.print(frame, 4, 4)
 
-	local seconds, ms = getMeleeTimpstamp(frame)
+	local seconds, ms = getMeleeTimestamp(frame)
 	local secstr = string.format("%d", seconds)
 	local msstr = string.format(".%02d", ms)
 
@@ -530,40 +542,30 @@ function targets.drawSplits()
 
 		local t = (targets.isValidRun() and current == i) and memory.match.timer.frame or targets.TIME_FRAMES[i]
 		if t then
-			local seconds, ms = getMeleeTimpstamp(t)
+			local seconds, ms = getMeleeTimestamp(t)
 
-			local secstr = string.format("%4d", seconds)
-			local msstr = string.format(".%02d", ms)
+			local secstr = string.format("%4d.%02d", seconds, ms)
 
 			local secw = SPLIT_SEC:getWidth(secstr)
-			local totalw = secw + SPLIT_MS:getWidth(msstr)
 
 			graphics.setFont(SPLIT_SEC)
 			graphics.setColor(0, 0, 0, 255)
-			graphics.print(secstr, 320 - 8 - totalw, y)
+			graphics.print(secstr, 320 - 8 - secw, y)
 			graphics.setColor(255, 255, 255, 255)
-			graphics.print(secstr, 320 - 8 - totalw, y-1)
-
-			graphics.setFont(SPLIT_MS)
-			graphics.setColor(0, 0, 0, 255)
-			graphics.print(msstr, 320 - 8 - totalw + secw, y+5)
-			graphics.setColor(255, 255, 255, 255)
-			graphics.print(msstr, 320 - 8 - totalw + secw, y+4)
+			graphics.print(secstr, 320 - 8 - secw, y-1)
 
 			local bt = targets.TIME_FRAMES_PB[i] or t
 			local dt = t - bt
 
-			local seconds, ms = getMeleeTimpstamp(dt)
+			local seconds, ms = getMeleeTimestamp(dt)
 
-			local secstr = string.format("%+d", seconds)
-			local msstr = string.format(".%02d", ms)
+			local secstr = string.format("%+d.%02d", seconds, ms)
 
 			local bsecw = SPLIT_SEC:getWidth(secstr)
-			local btotalw = bsecw + SPLIT_MS:getWidth(msstr)
 
 			graphics.setFont(SPLIT_SEC)
 			graphics.setColor(0, 0, 0, 255)
-			graphics.print(secstr, 320 - 8 - totalw - 8 - btotalw, y)
+			graphics.print(secstr, 320 - 8 - secw - 8 - bsecw, y)
 
 			if dt > 0 then
 				graphics.setColor(225, 0, 0, 255)
@@ -572,30 +574,16 @@ function targets.drawSplits()
 			elseif dt < 0 then
 				graphics.setColor(0, 155, 40, 255)
 			end
-			graphics.print(secstr, 320 - 8 - totalw - 8 - btotalw, y-1)
-
-			graphics.setFont(SPLIT_MS)
-			graphics.setColor(0, 0, 0, 255)
-			graphics.print(msstr, 320 - 8 - totalw - 8 - btotalw + bsecw, y+5)
-			if dt > 0 then
-				graphics.setColor(225, 0, 0, 255)
-			elseif dt == 0 then
-				graphics.setColor(155, 155, 155, 255)
-			elseif dt < 0 then
-				graphics.setColor(0, 155, 40, 255)
-			end
-			graphics.print(msstr, 320 - 8 - totalw - 8 - btotalw + bsecw, y+4)
+			graphics.print(secstr, 320 - 8 - secw - 8 - bsecw, y-1)
 		end
 	end
 
 	local besttime = targets.getCDATA(character, "BestTime") or 0
 
-	local seconds, ms = getMeleeTimpstamp(besttime)
-	local secstr = string.format("Personal Best: %d", seconds)
-	local msstr = string.format(".%02d", ms)
+	local seconds, ms = getMeleeTimestamp(besttime)
+	local secstr = string.format("Personal Best: %d.%02d", seconds, ms)
 
 	local secw = SPLIT_SEC:getWidth(secstr)
-	local totalw = secw + TOTAL_MS:getWidth(msstr)
 
 	graphics.setFont(SPLIT_SEC)
 	graphics.setColor(0, 0, 0, 255)
@@ -603,32 +591,18 @@ function targets.drawSplits()
 	graphics.setColor(255, 255, 255, 255)
 	graphics.print(secstr, 4, 448 - 45)
 
-	graphics.setFont(SPLIT_MS)
-	graphics.setColor(0, 0, 0, 255)
-	graphics.print(msstr, 4 + secw, 448 - 41)
-	graphics.setColor(255, 255, 255, 255)
-	graphics.print(msstr, 4 + secw, 448 - 40)
-
 	local sumtime = targets.getCDATA(character, "SumOfBestTime") or 0
 
-	local seconds, ms = getMeleeTimpstamp(sumtime)
-	local secstr = string.format("Sum of Best: %d", seconds)
-	local msstr = string.format(".%02d", ms)
+	local seconds, ms = getMeleeTimestamp(sumtime)
+	local secstr = string.format("Sum of Best: %d.%02d", seconds, ms)
 
 	local secw = SPLIT_SEC:getWidth(secstr)
-	local totalw = secw + TOTAL_MS:getWidth(msstr)
 
 	graphics.setFont(SPLIT_SEC)
 	graphics.setColor(0, 0, 0, 255)
 	graphics.print(secstr, 4, 448 - 24)
 	graphics.setColor(255, 255, 255, 255)
 	graphics.print(secstr, 4, 448 - 23)
-
-	graphics.setFont(SPLIT_MS)
-	graphics.setColor(0, 0, 0, 255)
-	graphics.print(msstr, 4 + secw, 448 - 19)
-	graphics.setColor(255, 255, 255, 255)
-	graphics.print(msstr, 4 + secw, 448 - 18)
 
 	if targets.IN_DISPLAY_MENU ~= nil then
 		graphics.setColor(0, 0, 0, 200)
