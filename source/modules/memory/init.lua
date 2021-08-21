@@ -293,7 +293,7 @@ function ADDRESS:update()
 
 		if self.debug then
 			local numValue = tonumber(orig) or tonumber(value) or (value and 1 or 0)
-			log.debug("[MEMORY] [0x%08X  = 0x%08X] %s = %s", self.address + self.offset, numValue, self.name, value)
+			log.debug("[MEMORY] [%d][0x%08X  = 0x%08X] %s = %s", memory.frame, self.address + self.offset, numValue, self.name, value)
 		end
 
 		-- Queue up a hook event
@@ -369,9 +369,9 @@ do
 			self.location = ploc
 
 			if valid then
-				log.debug("[MEMORY] [0x%08X -> 0x%08X] %s -> 0x%08X", addr, ploc, self.name, ploc)
+				log.debug("[MEMORY] [%d][0x%08X -> 0x%08X] %s -> 0x%08X", memory.frame, addr, ploc, self.name, ploc)
 			else
-				log.debug("[MEMORY] [0x%08X -> 0x0 (NULL)] %s -> 0x%08X", addr, self.name, ploc)
+				log.debug("[MEMORY] [%d][0x%08X -> 0x0 (NULL)] %s -> 0x%08X", memory.frame, addr, self.name, ploc)
 			end
 		end
 

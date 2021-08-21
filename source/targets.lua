@@ -46,11 +46,16 @@ local MODE_LAST = 0x4
 local MODE_LAST_COMPLETE = 0x5
 
 local function getMeleeTimestamp(frame)
-	local duration = frame/60
-	local minutes = math.floor(duration/60)
-	local seconds = math.floor(duration)
-	local ms = math.floor((frame%60)*99/59)
-	return seconds, ms
+	local seconds = 0
+	local decimal = math.floor((frame%60)*99/59)/100
+
+	if frame >= 0 then
+		seconds = math.floor(frame/60)+decimal
+	else
+		seconds = math.ceil(frame/60)-(1-decimal)
+	end
+
+	return seconds
 end
 
 local timedb = lsqlite3.open(string.format("%s/time.db", love.filesystem.getSaveDirectory()))
@@ -72,6 +77,16 @@ timedb:exec([[CREATE TABLE IF NOT EXISTS splits (
 	time		INTEGER, -- #frames spent between last split and this split
 	UNIQUE(run,target) -- we should never have duplicate targets in a given run
 );]])
+
+function targets.getFrame()
+	return memory.frame
+end
+
+local TIMER_START_FRAME = -124
+
+function targets.getTimerFrame()
+	return memory.frame+TIMER_START_FRAME
+end
 
 function targets.getCharacter()
 	return memory.player[1].select.character
@@ -320,7 +335,7 @@ function targets.saveSplit(target, frames)
 	targets.TIME_FRAMES[target] = frames
 	local timespent = (targets.TIME_FRAMES[target] or 0) - (targets.TIME_FRAMES[target-1] or 0)
 	local stmt = timedb:prepare("INSERT INTO splits (run, target, tframe, gframe, time) VALUES (?,?,?,?,?);")
-	stmt:bind_values(targets.RUN_ID, target, memory.match.timer.frame, memory.frame, timespent)
+	stmt:bind_values(targets.RUN_ID, target, targets.getTimerFrame(), memory.frame, timespent)
 	stmt:step()
 	stmt:finalize()
 	if target >= 10 then
@@ -334,7 +349,7 @@ end
 
 function targets.saveResults(result)
 	local stmt = timedb:prepare("UPDATE runs SET tframe=?, gframe=?, targets=?, result=? WHERE run=?;")
-	stmt:bind_values(memory.match.timer.frame, memory.frame, 10 - memory.stage.targets, result or memory.match.result, targets.RUN_ID)
+	stmt:bind_values(targets.getTimerFrame(), memory.frame, 10 - memory.stage.targets, result or memory.match.result, targets.RUN_ID)
 	stmt:step()
 	stmt:finalize()
 end
@@ -344,7 +359,7 @@ function targets.isValidRun()
 end
 
 function targets.newRun()
-	if not targets.isValidRun() then
+	if targets.isInBTT() and not targets.isValidRun() then
 		log.info("Started run #%d at game frame %d", targets.startRun(), memory.frame)
 		targets.IN_DISPLAY_MENU = nil
 		targets.DISPLAY_MODE = MODE_LAST
@@ -358,28 +373,25 @@ end
 function targets.endRun(result)
 	if targets.isValidRun() then
 		targets.RUN_IN_PROGRESS = false
-		log.info("Ended run #%d at frame %d - time %02d.%02d", targets.RUN_ID, memory.match.timer.frame, getMeleeTimestamp(memory.match.timer.frame))
+		log.info("Ended run #%d at frame %d - time %02.02f", targets.RUN_ID, targets.getTimerFrame(), getMeleeTimestamp(targets.getTimerFrame()))
 		targets.saveResults(result)
 		targets.updateCharacterStats()
 	end
 end
 
 memory.hook("player.1.select.character", "Targets - Update Count", function(character)
-	targets.updateCharacterStats()
-end)
-
-memory.hook("match.result", "Targets - Check start of game", function(result)
-	if result ~= RESULT_NONE then
-		targets.endRun(result)
+	if targets.isInBTTCharacterSelect() then
+		targets.updateCharacterStats()
 	end
 end)
 
 local prev_remain = 0
 
-memory.hook("match.timer.frame", "Targets - Check restart", function(frame)
-	if frame == 0 then
-		targets.endRun()
+memory.hook("match.result", "Targets - Check start of game", function(result)
+	if result == RESULT_NONE then
 		targets.newRun()
+	else
+		targets.endRun(result)
 		prev_remain = 10
 	end
 end)
@@ -402,8 +414,8 @@ memory.hook("stage.targets", "Targets - Save Split", function(remain)
 		-- Only log splits when the target count decreases
 		for i=startpos+1, endpos do
 			-- We can hit more than one target in a single frame, so loop through and mark every single one as hit
-			log.info("Hit target #%d at frame %d - time %02d.%02d", i, memory.match.timer.frame, getMeleeTimestamp(memory.match.timer.frame))
-			targets.saveSplit(i, memory.match.timer.frame)
+			log.info("Hit target #%d at frame %d - time %02.02f", i, targets.getTimerFrame(), getMeleeTimestamp(targets.getTimerFrame()))
+			targets.saveSplit(i, targets.getTimerFrame())
 		end
 		targets.BROKEN = endpos
 	end
@@ -478,7 +490,7 @@ function targets.drawSplits()
 	graphics.setColor(255, 255, 255, 255)
 	graphics.print(runnum, x, 13)
 
-	local frame = targets.isValidRun() and memory.match.timer.frame or (targets.TIME_FRAME or 0)
+	local frame = targets.isValidRun() and targets.getTimerFrame() or (targets.TIME_FRAME or 0)
 
 	graphics.setFont(FRAME_FONT)
 	graphics.setColor(0, 0, 0, 255)
@@ -486,24 +498,16 @@ function targets.drawSplits()
 	graphics.setColor(255, 255, 255, 255)
 	graphics.print(frame, 4, 4)
 
-	local seconds, ms = getMeleeTimestamp(frame)
-	local secstr = string.format("%d", seconds)
-	local msstr = string.format(".%02d", ms)
+	local seconds = getMeleeTimestamp(frame)
+	local secstr = string.format("%02.02f", seconds)
 
 	local secw = TOTAL_SEC:getWidth(secstr)
-	local totalw = secw + TOTAL_MS:getWidth(msstr)
 
 	graphics.setFont(TOTAL_SEC)
 	graphics.setColor(0, 0, 0, 255)
-	graphics.print(secstr, 160 - totalw/2, 5)
+	graphics.print(secstr, 160 - secw/2, 5)
 	graphics.setColor(255, 255, 255, 255)
-	graphics.print(secstr, 160 - totalw/2, 4)
-
-	graphics.setFont(TOTAL_MS)
-	graphics.setColor(0, 0, 0, 255)
-	graphics.print(msstr, 160 - totalw/2 + secw, 16)
-	graphics.setColor(255, 255, 255, 255)
-	graphics.print(msstr, 160 - totalw/2 + secw, 15)
+	graphics.print(secstr, 160 - secw/2, 4)
 
 	local current = targets.BROKEN + 1
 
@@ -540,11 +544,11 @@ function targets.drawSplits()
 			graphics.easyDraw(TARGET, 8 + 24, 8 + (36*i), 0, 24, 24)
 		graphics.setShader()
 
-		local t = (targets.isValidRun() and current == i) and memory.match.timer.frame or targets.TIME_FRAMES[i]
+		local t = (targets.isValidRun() and current == i) and targets.getTimerFrame() or targets.TIME_FRAMES[i]
 		if t then
-			local seconds, ms = getMeleeTimestamp(t)
+			local seconds = getMeleeTimestamp(t)
 
-			local secstr = string.format("%4d.%02d", seconds, ms)
+			local secstr = string.format("%7.02f", seconds, ms)
 
 			local secw = SPLIT_SEC:getWidth(secstr)
 
@@ -557,9 +561,9 @@ function targets.drawSplits()
 			local bt = targets.TIME_FRAMES_PB[i] or t
 			local dt = t - bt
 
-			local seconds, ms = getMeleeTimestamp(dt)
+			local seconds = getMeleeTimestamp(dt)
 
-			local secstr = string.format("%+d.%02d", seconds, ms)
+			local secstr = string.format("%+2.02f", seconds)
 
 			local bsecw = SPLIT_SEC:getWidth(secstr)
 
@@ -580,8 +584,8 @@ function targets.drawSplits()
 
 	local besttime = targets.getCDATA(character, "BestTime") or 0
 
-	local seconds, ms = getMeleeTimestamp(besttime)
-	local secstr = string.format("Personal Best: %d.%02d", seconds, ms)
+	local seconds = getMeleeTimestamp(besttime)
+	local secstr = string.format("Personal Best: %.02f", seconds)
 
 	local secw = SPLIT_SEC:getWidth(secstr)
 
@@ -593,8 +597,8 @@ function targets.drawSplits()
 
 	local sumtime = targets.getCDATA(character, "SumOfBestTime") or 0
 
-	local seconds, ms = getMeleeTimestamp(sumtime)
-	local secstr = string.format("Sum of Best: %d.%02d", seconds, ms)
+	local seconds = getMeleeTimestamp(sumtime)
+	local secstr = string.format("Sum of Best: %.02f", seconds)
 
 	local secw = SPLIT_SEC:getWidth(secstr)
 
