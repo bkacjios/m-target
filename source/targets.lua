@@ -182,7 +182,16 @@ function targets.getNextRunID(character, id)
 	return nid or id
 end
 
-function targets.getPersonalBestRunID(character, id)
+function targets.getPersonalBestRunID(character)
+	local stmt = timedb:prepare("SELECT run FROM runs WHERE character=? AND result=6 ORDER BY gframe LIMIT 1;")
+	stmt:bind_values(character)
+	stmt:step()
+	local pbid = stmt[0]
+	stmt:finalize()
+	return pbid
+end
+
+function targets.getPreviousPersonalBestRunID(character, id)
 	local stmt = timedb:prepare("SELECT run FROM runs WHERE character=? AND result=6 AND run<? ORDER BY gframe LIMIT 1;")
 	stmt:bind_values(character, id)
 	stmt:step()
@@ -254,8 +263,8 @@ function targets.displayPersonalBestRun(character)
 	end
 end
 
-function targets.loadPersonalBestRun(character)
-	local pbid = targets.getPersonalBestRunID(character, targets.RUN_ID_DISPLAY)
+function targets.loadPreviousPersonalBestRun(character)
+	local pbid = targets.getPreviousPersonalBestRunID(character, targets.RUN_ID_DISPLAY)
 	if not pbid then return end
 	targets.TIMER_SPLIT_FRAMES_PB = targets.getRunSplits(pbid)
 end
@@ -325,6 +334,7 @@ function targets.updateDisplayMode()
 	end
 	targets.BROKEN = #targets.TIMER_SPLIT_FRAMES_DISPLAY
 	targets.TIMER_FRAME_COUNT = targets.TIMER_SPLIT_FRAMES_DISPLAY[#targets.TIMER_SPLIT_FRAMES_DISPLAY]
+	targets.loadPreviousPersonalBestRun(character)
 end
 
 function targets.updateCharacterStats()
@@ -333,7 +343,6 @@ function targets.updateCharacterStats()
 	targets.getBestTime(character)
 	--targets.getSumOfBest(character)
 	targets.updateDisplayMode()
-	targets.loadPersonalBestRun(character)
 end
 
 function targets.createRun()
@@ -392,11 +401,11 @@ end
 
 function targets.endRun(result)
 	if targets.isValidRun() then
+		targets.saveResults(result)
 		targets.RUN_ID_ACTIVE = nil
 		targets.PREV_REMAIN = 10
 		targets.RUN_IN_PROGRESS = false
 		log.info("Ended run #%d at frame %d - time %02.02f", targets.RUN_ID_DISPLAY, targets.getTimerFrame(), getMeleeTimestamp(targets.getTimerFrame()))
-		targets.saveResults(result)
 		targets.updateCharacterStats()
 	end
 end
@@ -600,7 +609,6 @@ function targets.drawSplits()
 			local dt = t - bt
 
 			local seconds = getMeleeTimestamp(dt)
-
 			local secstr = string.format("%+2.02f", seconds)
 
 			local bsecw = SPLIT_SEC:getWidth(secstr)
