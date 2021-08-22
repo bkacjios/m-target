@@ -1,15 +1,17 @@
 local targets = {
-	TIMER_SPLIT_FRAMES = {},
+	TIMER_SPLIT_FRAMES_DISPLAY = {},
+	TIMER_SPLIT_FRAMES_ACTIVE = {},
 	TIMER_SPLIT_FRAMES_PB = {},
 	TIMER_FRAME_COUNT = 0,
-	BROKEN = 0,
-	PREV_REMAIN = 10,
-	RUN_ID = nil,
-	RUN_NUM = 0,
+	RUN_NUMBER = 0,
+	RUN_ID_DISPLAY = nil,
+	RUN_ID_ACTIVE = nil,
 	RUN_IN_PROGRESS = false,
 	CHARACTER_DATA = {},
 	IN_DISPLAY_MENU = nil,
 	DISPLAY_MODE = 0x4,
+	BROKEN = 0,
+	PREV_REMAIN = 10,
 }
 
 local log = require("log")
@@ -125,11 +127,11 @@ function targets.getCDATA(character, name)
 	end
 end
 
-function targets.updateCharRuns(character, id)
+function targets.updateCharRunNumber(character, id)
 	local stmt = timedb:prepare("SELECT COUNT(*) FROM runs WHERE character=? AND run<=?")
-	stmt:bind_values(character, id or targets.RUN_ID)
+	stmt:bind_values(character, id or targets.RUN_ID_DISPLAY)
 	stmt:step()
-	targets.RUN_NUM = stmt[0]
+	targets.RUN_NUMBER = stmt[0]
 	stmt:finalize()
 end
 
@@ -180,17 +182,17 @@ function targets.getNextRunID(character, id)
 	return nid or id
 end
 
-function targets.getPersonalBestRunID(character)
-	local stmt = timedb:prepare("SELECT run FROM runs WHERE character=? AND result=6 ORDER BY gframe LIMIT 1;")
-	stmt:bind_values(character)
+function targets.getPersonalBestRunID(character, id)
+	local stmt = timedb:prepare("SELECT run FROM runs WHERE character=? AND result=6 AND run<? ORDER BY gframe LIMIT 1;")
+	stmt:bind_values(character, id)
 	stmt:step()
 	local pbid = stmt[0]
 	stmt:finalize()
 	return pbid or id
 end
 
-function targets.loadRun(runid)
-	targets.RUN_ID = runid
+function targets.getRunSplits(runid)
+	local splits = {}
 
 	local stmt = timedb:prepare([[
 SELECT run, tframe
@@ -199,55 +201,66 @@ WHERE run = ?
 ORDER BY target;]])
 	stmt:bind_values(runid)
 
-	targets.TIMER_SPLIT_FRAMES = {}
-
 	for row in stmt:nrows() do
-		table.insert(targets.TIMER_SPLIT_FRAMES, row.tframe)
+		table.insert(splits, row.tframe)
 	end
 
 	stmt:finalize()
+
+	return splits
 end
 
-function targets.loadLastRun(character)
+function targets.displayRun(runid)
+	targets.RUN_ID_DISPLAY = runid
+	targets.TIMER_SPLIT_FRAMES_DISPLAY = targets.getRunSplits(runid)
+end
+
+function targets.displayLastRun(character)
 	local lastid = targets.getLastRunID(character)
 	if not lastid then return end
-	targets.loadRun(lastid)
-	targets.updateCharRuns(character, lastid)
+	targets.displayRun(lastid)
+	targets.updateCharRunNumber(character, lastid)
 end
 
-function targets.loadPrevRun(character)
-	local previd = targets.getPrevRunID(character, targets.RUN_ID)
+function targets.displayPrevRun(character)
+	local previd = targets.getPrevRunID(character, targets.RUN_ID_DISPLAY)
 	if not previd then return end
-	targets.loadRun(previd)
-	targets.updateCharRuns(character, previd)
+	targets.displayRun(previd)
+	targets.updateCharRunNumber(character, previd)
 end
 
-function targets.loadPrevCompletedRun(character)
-	local previd = targets.getPrevCompletedRunID(character, targets.RUN_ID)
+function targets.displayPrevCompletedRun(character)
+	local previd = targets.getPrevCompletedRunID(character, targets.RUN_ID_DISPLAY)
 	if not previd then return end
-	targets.loadRun(previd)
-	targets.updateCharRuns(character, previd)
+	targets.displayRun(previd)
+	targets.updateCharRunNumber(character, previd)
 end
 
-function targets.loadNextRun(character)
-	local nextid = targets.getNextRunID(character, targets.RUN_ID)
+function targets.displayNextRun(character)
+	local nextid = targets.getNextRunID(character, targets.RUN_ID_DISPLAY)
 	if not nextid then return end
-	targets.loadRun(nextid)
-	targets.updateCharRuns(character, nextid)
+	targets.displayRun(nextid)
+	targets.updateCharRunNumber(character, nextid)
 end
 
-function targets.loadPersonalBestRun(character)
-	local pbid = targets.getPersonalBestRunID(character)
+function targets.displayPersonalBestRun(character)
+	local pbid = targets.getPersonalBestRunID(character, targets.RUN_ID_DISPLAY)
 	if not pbid then return end
-	targets.loadRun(pbid)
-	targets.updateCharRuns(character, pbid)
+	targets.displayRun(pbid)
+	targets.updateCharRunNumber(character, pbid)
 
-	for k,v in pairs(targets.TIMER_SPLIT_FRAMES) do
+	for k,v in pairs(targets.TIMER_SPLIT_FRAMES_DISPLAY) do
 		targets.TIMER_SPLIT_FRAMES_PB[k] = v
 	end
 end
 
-function targets.loadPossibleBestRun(character)
+function targets.loadPersonalBestRun(character)
+	local pbid = targets.getPersonalBestRunID(character, targets.RUN_ID_DISPLAY)
+	if not pbid then return end
+	targets.TIMER_SPLIT_FRAMES_PB = targets.getRunSplits(pbid)
+end
+
+function targets.displayPossibleBestRun(character)
 	local stmt = timedb:prepare([[
 SELECT min(splits.time) as time
 FROM runs
@@ -257,14 +270,14 @@ GROUP BY splits.target
 ORDER BY splits.target]])
 	stmt:bind_values(character)
 
-	targets.TIMER_SPLIT_FRAMES = {}
-	targets.RUN_NUM = 0
+	targets.TIMER_SPLIT_FRAMES_DISPLAY = {}
+	targets.RUN_NUMBER = 0
 
 	local tframe = 0
 
 	for row in stmt:nrows() do
 		tframe = tframe + row.time
-		table.insert(targets.TIMER_SPLIT_FRAMES, tframe)
+		table.insert(targets.TIMER_SPLIT_FRAMES_DISPLAY, tframe)
 	end
 
 	stmt:finalize()
@@ -298,48 +311,49 @@ function targets.updateDisplayMode()
 	local character = targets.getCharacter()
 	local mode = targets.DISPLAY_MODE
 	if mode == MODE_PREV then
-		targets.loadPrevRun(character)
+		targets.displayPrevRun(character)
 	elseif mode == MODE_NEXT then
-		targets.loadNextRun(character)
+		targets.displayNextRun(character)
 	elseif mode == MODE_PB then
-		targets.loadPersonalBestRun(character)
+		targets.displayPersonalBestRun(character)
 	--elseif mode == MODE_BEST then
-	--	targets.loadPossibleBestRun(character)
+	--	targets.displayPossibleBestRun(character)
 	elseif mode == MODE_LAST then
-		targets.loadLastRun(character)
+		targets.displayLastRun(character)
 	elseif mode == MODE_LAST_COMPLETE then
-		targets.loadPrevCompletedRun(character)
+		targets.displayPrevCompletedRun(character)
 	end
-	targets.BROKEN = #targets.TIMER_SPLIT_FRAMES
-	targets.TIMER_FRAME_COUNT = targets.TIMER_SPLIT_FRAMES[#targets.TIMER_SPLIT_FRAMES]
+	targets.BROKEN = #targets.TIMER_SPLIT_FRAMES_DISPLAY
+	targets.TIMER_FRAME_COUNT = targets.TIMER_SPLIT_FRAMES_DISPLAY[#targets.TIMER_SPLIT_FRAMES_DISPLAY]
 end
 
 function targets.updateCharacterStats()
 	local character = targets.getCharacter()
-	targets.loadPersonalBestRun(character)
-	targets.updateCharRuns(character)
+	targets.updateCharRunNumber(character)
 	targets.getBestTime(character)
 	--targets.getSumOfBest(character)
 	targets.updateDisplayMode()
+	targets.loadPersonalBestRun(character)
 end
 
-function targets.startRun()
+function targets.createRun()
 	local character = targets.getCharacter()
 	local stmt = timedb:prepare("INSERT INTO runs (character) VALUES (?);")
 	stmt:bind_values(character)
 	stmt:step()
 	stmt:finalize()
-	targets.RUN_ID = timedb:last_insert_rowid()
-	targets.updateCharRuns(character, targets.RUN_ID)
-	return targets.RUN_ID
+	targets.RUN_ID_DISPLAY = timedb:last_insert_rowid()
+	targets.RUN_ID_ACTIVE = targets.RUN_ID_DISPLAY
+	targets.updateCharRunNumber(character, targets.RUN_ID_DISPLAY)
+	return targets.RUN_ID_DISPLAY
 end
 
 function targets.saveSplit(target, frames)
 	targets.newRun()
-	targets.TIMER_SPLIT_FRAMES[target] = frames
-	local timespent = (targets.TIMER_SPLIT_FRAMES[target] or 0) - (targets.TIMER_SPLIT_FRAMES[target-1] or 0)
+	targets.TIMER_SPLIT_FRAMES_ACTIVE[target] = frames
+	local timespent = (targets.TIMER_SPLIT_FRAMES_ACTIVE[target] or 0) - (targets.TIMER_SPLIT_FRAMES_ACTIVE[target-1] or 0)
 	local stmt = timedb:prepare("INSERT INTO splits (run, target, tframe, gframe, time) VALUES (?,?,?,?,?);")
-	stmt:bind_values(targets.RUN_ID, target, targets.getTimerFrame(), memory.frame, timespent)
+	stmt:bind_values(targets.RUN_ID_ACTIVE, target, targets.getTimerFrame(), memory.frame, timespent)
 	stmt:step()
 	stmt:finalize()
 	if target >= 10 then
@@ -351,7 +365,7 @@ end
 
 function targets.saveResults(result)
 	local stmt = timedb:prepare("UPDATE runs SET tframe=?, gframe=?, targets=?, result=? WHERE run=?;")
-	stmt:bind_values(targets.getTimerFrame(), memory.frame, 10 - memory.stage.targets, result or memory.match.result, targets.RUN_ID)
+	stmt:bind_values(targets.getTimerFrame(), memory.frame, 10 - memory.stage.targets, result or memory.match.result, targets.RUN_ID_ACTIVE)
 	stmt:step()
 	stmt:finalize()
 end
@@ -360,13 +374,17 @@ function targets.isValidRun()
 	return targets.RUN_IN_PROGRESS
 end
 
+function targets.isDisplayingActiveRun()
+	return targets.RUN_ID_ACTIVE == targets.RUN_ID_DISPLAY
+end
+
 function targets.newRun()
 	if targets.isInBTTMatch() and not targets.isValidRun() then
-		log.info("Started run #%d at game frame %d", targets.startRun(), memory.frame)
+		log.info("Started run #%d at game frame %d", targets.createRun(), memory.frame)
 		targets.IN_DISPLAY_MENU = nil
 		targets.DISPLAY_MODE = MODE_LAST
 		targets.RUN_IN_PROGRESS = true
-		targets.TIMER_SPLIT_FRAMES = {}
+		targets.TIMER_SPLIT_FRAMES_ACTIVE = {}
 		targets.TIMER_FRAME_COUNT = 0
 		targets.BROKEN = 0
 	end
@@ -374,9 +392,10 @@ end
 
 function targets.endRun(result)
 	if targets.isValidRun() then
+		targets.RUN_ID_ACTIVE = nil
 		targets.PREV_REMAIN = 10
 		targets.RUN_IN_PROGRESS = false
-		log.info("Ended run #%d at frame %d - time %02.02f", targets.RUN_ID, targets.getTimerFrame(), getMeleeTimestamp(targets.getTimerFrame()))
+		log.info("Ended run #%d at frame %d - time %02.02f", targets.RUN_ID_DISPLAY, targets.getTimerFrame(), getMeleeTimestamp(targets.getTimerFrame()))
 		targets.saveResults(result)
 		targets.updateCharacterStats()
 	end
@@ -490,7 +509,7 @@ function targets.drawSplits()
 	graphics.setColor(255, 255, 255, 255)
 	melee.drawStock(port, 320 - 24 - 8, 8, 0, 24, 24)
 
-	local runnum = string.format("#%d", targets.RUN_NUM or 0)
+	local runnum = string.format("#%d", targets.RUN_NUMBER or 0)
 
 	local x = 320 - 24 - 12 - FRAME_FONT:getWidth(runnum)
 
@@ -500,7 +519,9 @@ function targets.drawSplits()
 	graphics.setColor(255, 255, 255, 255)
 	graphics.print(runnum, x, 13)
 
-	local frame = targets.isValidRun() and targets.getTimerFrame() or (targets.TIMER_FRAME_COUNT or 0)
+	local activeRun = targets.isValidRun() and targets.isDisplayingActiveRun()
+
+	local frame = activeRun and targets.getTimerFrame() or (targets.TIMER_FRAME_COUNT or 0)
 
 	graphics.setFont(FRAME_FONT)
 	graphics.setColor(0, 0, 0, 255)
@@ -522,7 +543,7 @@ function targets.drawSplits()
 	local current = targets.BROKEN + 1
 
 	for i=1,10 do
-		if targets.isValidRun() and current == i then
+		if activeRun and current == i then
 			graphics.setColor(0, 100, 0, 150)
 		elseif i%2 == 1 then
 			graphics.setColor(100, 100, 100, 150)
@@ -540,7 +561,6 @@ function targets.drawSplits()
 		graphics.setColor(255, 255, 255, 255)
 		graphics.print(numstr, 8, y-1)
 
-
 		if current == i then
 			greyscale:send("percent", 0.25)
 		elseif i > current then
@@ -554,7 +574,15 @@ function targets.drawSplits()
 			graphics.easyDraw(TARGET, 8 + 24, 8 + (36*i), 0, 24, 24)
 		graphics.setShader()
 
-		local t = (targets.isValidRun() and current == i) and targets.getTimerFrame() or targets.TIMER_SPLIT_FRAMES[i]
+		local t
+		if activeRun and current == i then
+			t = targets.getTimerFrame()
+		elseif targets.isDisplayingActiveRun() then
+			t = targets.TIMER_SPLIT_FRAMES_ACTIVE[i]
+		else
+			t = targets.TIMER_SPLIT_FRAMES_DISPLAY[i]
+		end
+
 		if t then
 			local seconds = getMeleeTimestamp(t)
 
