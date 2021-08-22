@@ -16,7 +16,7 @@
   - [Currently unsupported and probably never will be](https://github.com/bkacjios/m-target/issues/97)
 
 
-### Known programs that interfere with M'Targets:
+### Known programs that interfere with M'Target:
 
 * RePlaysTV
 * Raptr Desktop App (AMD Gaming Evolved)
