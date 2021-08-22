@@ -13,7 +13,7 @@
 * Linux ([LÖVE 11.3](https://love2d.org/) - x64)
   - Love2D: [m-target-x64.love](https://github.com/bkacjios/m-target/releases/latest/download/m-target-x64.love)
 * macOS
-  - [Currently unsupported and probably never will be](https://github.com/bkacjios/m-target/issues/97)
+  - [Currently unsupported and probably never will be](https://github.com/bkacjios/m-overlay/issues/97)
 
 
 ### Known programs that interfere with M'Target:
