@@ -1,9 +1,9 @@
 local targets = {
-	TIME_FRAMES = {},
-	TIME_FRAMES_PB = {},
-	TIME_FRAME = 0,
+	TIMER_SPLIT_FRAMES = {},
+	TIMER_SPLIT_FRAMES_PB = {},
+	TIMER_FRAME_COUNT = 0,
 	BROKEN = 0,
-	PREV_BROKEN_FRAME = 0,
+	PREV_REMAIN = 10,
 	RUN_ID = nil,
 	RUN_NUM = 0,
 	RUN_IN_PROGRESS = false,
@@ -96,12 +96,16 @@ function targets.getActivePort()
 	return memory.menu.player_one_port+1
 end
 
-function targets.isInBTT()
+function targets.isBTTMode()
 	return memory.menu.major == MENU_TARGET_TEST
 end
 
-function targets.isInBTTCharacterSelect()
-	return targets.isInBTT() and memory.menu.minor == MENU_TARGET_TEST_CSS
+function targets.isInBTTMatch()
+	return targets.isBTTMode() and memory.menu.minor == MENU_TARGET_TEST_INGAME
+end
+
+function targets.isInBTTCSS()
+	return targets.isBTTMode() and memory.menu.minor == MENU_TARGET_TEST_CSS
 end
 
 function targets.isPaused()
@@ -195,10 +199,10 @@ WHERE run = ?
 ORDER BY target;]])
 	stmt:bind_values(runid)
 
-	targets.TIME_FRAMES = {}
+	targets.TIMER_SPLIT_FRAMES = {}
 
 	for row in stmt:nrows() do
-		table.insert(targets.TIME_FRAMES, row.tframe)
+		table.insert(targets.TIMER_SPLIT_FRAMES, row.tframe)
 	end
 
 	stmt:finalize()
@@ -238,8 +242,8 @@ function targets.loadPersonalBestRun(character)
 	targets.loadRun(pbid)
 	targets.updateCharRuns(character, pbid)
 
-	for k,v in pairs(targets.TIME_FRAMES) do
-		targets.TIME_FRAMES_PB[k] = v
+	for k,v in pairs(targets.TIMER_SPLIT_FRAMES) do
+		targets.TIMER_SPLIT_FRAMES_PB[k] = v
 	end
 end
 
@@ -253,14 +257,14 @@ GROUP BY splits.target
 ORDER BY splits.target]])
 	stmt:bind_values(character)
 
-	targets.TIME_FRAMES = {}
+	targets.TIMER_SPLIT_FRAMES = {}
 	targets.RUN_NUM = 0
 
 	local tframe = 0
 
 	for row in stmt:nrows() do
 		tframe = tframe + row.time
-		table.insert(targets.TIME_FRAMES, tframe)
+		table.insert(targets.TIMER_SPLIT_FRAMES, tframe)
 	end
 
 	stmt:finalize()
@@ -299,15 +303,15 @@ function targets.updateDisplayMode()
 		targets.loadNextRun(character)
 	elseif mode == MODE_PB then
 		targets.loadPersonalBestRun(character)
-	elseif mode == MODE_BEST then
-		targets.loadPossibleBestRun(character)
+	--elseif mode == MODE_BEST then
+	--	targets.loadPossibleBestRun(character)
 	elseif mode == MODE_LAST then
 		targets.loadLastRun(character)
 	elseif mode == MODE_LAST_COMPLETE then
 		targets.loadPrevCompletedRun(character)
 	end
-	targets.BROKEN = #targets.TIME_FRAMES
-	targets.TIME_FRAME = targets.TIME_FRAMES[#targets.TIME_FRAMES]
+	targets.BROKEN = #targets.TIMER_SPLIT_FRAMES
+	targets.TIMER_FRAME_COUNT = targets.TIMER_SPLIT_FRAMES[#targets.TIMER_SPLIT_FRAMES]
 end
 
 function targets.updateCharacterStats()
@@ -315,7 +319,7 @@ function targets.updateCharacterStats()
 	targets.loadPersonalBestRun(character)
 	targets.updateCharRuns(character)
 	targets.getBestTime(character)
-	targets.getSumOfBest(character)
+	--targets.getSumOfBest(character)
 	targets.updateDisplayMode()
 end
 
@@ -332,17 +336,15 @@ end
 
 function targets.saveSplit(target, frames)
 	targets.newRun()
-	targets.TIME_FRAMES[target] = frames
-	local timespent = (targets.TIME_FRAMES[target] or 0) - (targets.TIME_FRAMES[target-1] or 0)
+	targets.TIMER_SPLIT_FRAMES[target] = frames
+	local timespent = (targets.TIMER_SPLIT_FRAMES[target] or 0) - (targets.TIMER_SPLIT_FRAMES[target-1] or 0)
 	local stmt = timedb:prepare("INSERT INTO splits (run, target, tframe, gframe, time) VALUES (?,?,?,?,?);")
 	stmt:bind_values(targets.RUN_ID, target, targets.getTimerFrame(), memory.frame, timespent)
 	stmt:step()
 	stmt:finalize()
 	if target >= 10 then
 		-- We force the RESULT_COMPLETE here instead of a match.result hook.
-		-- This is because sometimes resetting back to RESULT_NONE is too fast for us to catch.
-		-- So if you did two complete runs in a row, the change will never be detected
-		-- and we would get stuck in a infinite run
+		-- match.result gets called a frame after we hit the target, messing up our run time
 		targets.endRun(RESULT_COMPLETE)
 	end
 end
@@ -359,19 +361,20 @@ function targets.isValidRun()
 end
 
 function targets.newRun()
-	if targets.isInBTT() and not targets.isValidRun() then
+	if targets.isInBTTMatch() and not targets.isValidRun() then
 		log.info("Started run #%d at game frame %d", targets.startRun(), memory.frame)
 		targets.IN_DISPLAY_MENU = nil
 		targets.DISPLAY_MODE = MODE_LAST
 		targets.RUN_IN_PROGRESS = true
-		targets.TIME_FRAMES = {}
-		targets.TIME_FRAME = 0
+		targets.TIMER_SPLIT_FRAMES = {}
+		targets.TIMER_FRAME_COUNT = 0
 		targets.BROKEN = 0
 	end
 end
 
 function targets.endRun(result)
 	if targets.isValidRun() then
+		targets.PREV_REMAIN = 10
 		targets.RUN_IN_PROGRESS = false
 		log.info("Ended run #%d at frame %d - time %02.02f", targets.RUN_ID, targets.getTimerFrame(), getMeleeTimestamp(targets.getTimerFrame()))
 		targets.saveResults(result)
@@ -380,39 +383,46 @@ function targets.endRun(result)
 end
 
 memory.hook("player.1.select.character", "Targets - Update Count", function(character)
-	if targets.isInBTTCharacterSelect() then
+	if targets.isInBTTCSS() then
 		targets.updateCharacterStats()
 	end
 end)
 
-local prev_remain = 0
+memory.hook("stage.id", "Targets - Start run on new stage", function(id)
+	if targets.isInBTTMatch() and melee.isBTTStage(id) then
+		-- This only happens when we first load into a stage
+		targets.newRun()
+	end
+end)
 
 memory.hook("match.result", "Targets - Check start of game", function(result)
 	if result == RESULT_NONE then
+		-- RESULT_NONE = new match is ready to begin (after a reset)
 		targets.newRun()
 	else
+		-- End the run if something triggered the end of the match
 		targets.endRun(result)
-		prev_remain = 10
 	end
 end)
 
 memory.hook("stage.targets", "Targets - Save Split", function(remain)
 	local frame = memory.match.timer.frame
 
-	-- Ignore when hitting 0 or 10 at frame 0, this is usally when loading into the target test or retrying
+	-- Ignore when remaining target count is 0 or 10 at frame 0
+	-- this can only happen when loading into the target test or retrying
 	if (remain == 10 or remain == 0) and frame == 0 then return end
 
-	local count = prev_remain - remain
-	local decresed = prev_remain > remain
+	local count = targets.PREV_REMAIN - remain
+	local decresed = targets.PREV_REMAIN > remain
 
 	local endpos = 10-remain
-	local startpos = 10-prev_remain
+	local startpos = (10-targets.PREV_REMAIN)+1
 
-	prev_remain = remain
+	targets.PREV_REMAIN = remain
 
 	if decresed and memory.match.finished == false then
 		-- Only log splits when the target count decreases
-		for i=startpos+1, endpos do
+		for i=startpos, endpos do
 			-- We can hit more than one target in a single frame, so loop through and mark every single one as hit
 			log.info("Hit target #%d at frame %d - time %02.02f", i, targets.getTimerFrame(), getMeleeTimestamp(targets.getTimerFrame()))
 			targets.saveSplit(i, targets.getTimerFrame())
@@ -490,7 +500,7 @@ function targets.drawSplits()
 	graphics.setColor(255, 255, 255, 255)
 	graphics.print(runnum, x, 13)
 
-	local frame = targets.isValidRun() and targets.getTimerFrame() or (targets.TIME_FRAME or 0)
+	local frame = targets.isValidRun() and targets.getTimerFrame() or (targets.TIMER_FRAME_COUNT or 0)
 
 	graphics.setFont(FRAME_FONT)
 	graphics.setColor(0, 0, 0, 255)
@@ -544,7 +554,7 @@ function targets.drawSplits()
 			graphics.easyDraw(TARGET, 8 + 24, 8 + (36*i), 0, 24, 24)
 		graphics.setShader()
 
-		local t = (targets.isValidRun() and current == i) and targets.getTimerFrame() or targets.TIME_FRAMES[i]
+		local t = (targets.isValidRun() and current == i) and targets.getTimerFrame() or targets.TIMER_SPLIT_FRAMES[i]
 		if t then
 			local seconds = getMeleeTimestamp(t)
 
@@ -558,7 +568,7 @@ function targets.drawSplits()
 			graphics.setColor(255, 255, 255, 255)
 			graphics.print(secstr, 320 - 8 - secw, y-1)
 
-			local bt = targets.TIME_FRAMES_PB[i] or t
+			local bt = targets.TIMER_SPLIT_FRAMES_PB[i] or t
 			local dt = t - bt
 
 			local seconds = getMeleeTimestamp(dt)
@@ -595,7 +605,7 @@ function targets.drawSplits()
 	graphics.setColor(255, 255, 255, 255)
 	graphics.print(secstr, 4, 448 - 45)
 
-	local sumtime = targets.getCDATA(character, "SumOfBestTime") or 0
+	--[[local sumtime = targets.getCDATA(character, "SumOfBestTime") or 0
 
 	local seconds = getMeleeTimestamp(sumtime)
 	local secstr = string.format("Sum of Best: %.02f", seconds)
@@ -606,7 +616,7 @@ function targets.drawSplits()
 	graphics.setColor(0, 0, 0, 255)
 	graphics.print(secstr, 4, 448 - 24)
 	graphics.setColor(255, 255, 255, 255)
-	graphics.print(secstr, 4, 448 - 23)
+	graphics.print(secstr, 4, 448 - 23)]]
 
 	if targets.IN_DISPLAY_MENU ~= nil then
 		graphics.setColor(0, 0, 0, 200)
