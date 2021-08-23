@@ -86,16 +86,7 @@ function love.keypressed(key, scancode, isrepeat)
 	if key == "escape" and not isrepeat then
 		PANEL_SETTINGS:Toggle()
 	end
-
 	gui.keyPressed(key, scancode, isrepeat)
-
-	local num = tonumber(string.match(key, "kp(%d)") or key)
-
-	if not PANEL_SETTINGS:IsVisible() and num and num >= 1 and num <= 4 then
-		love.setPort(num)
-		PORT_DISPLAY_OVERRIDE = nil
-		CONTROLLER_PORT_DISPLAY = love.timer.getTime() + 1.5
-	end
 end
 
 function love.keyreleased(key)
@@ -305,7 +296,7 @@ function love.draw()
 end
 
 function love.quit()
-	targets.endRun()
+	targets.quit()
 	PANEL_SETTINGS:SaveSettings()
 	gui.shutdown()
 end

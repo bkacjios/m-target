@@ -1,12 +1,13 @@
 local targets = {
-	TIMER_SPLIT_FRAMES_DISPLAY = {},
-	TIMER_SPLIT_FRAMES_ACTIVE = {},
-	TIMER_SPLIT_FRAMES_PB = {},
-	TIMER_FRAME_COUNT = 0,
-	RUN_NUMBER = 0,
-	RUN_ID_DISPLAY = nil,
-	RUN_ID_ACTIVE = nil,
-	RUN_IN_PROGRESS = false,
+	TIMER_SPLIT_FRAMES_DISPLAY = {}, -- Split data for displayed run
+	TIMER_SPLIT_FRAMES_ACTIVE = {}, -- Split data for active run
+	TIMER_SPLIT_FRAMES_PB = {}, -- Split data for PB run
+	TIMER_FRAME_COUNT = 0, -- The current framecount of the game
+	RUN_NUMBER = 0, -- What run number we are on
+	RUN_ID_DISPLAY = nil, -- What run ID is currently being displayed
+	RUN_ID_ACTIVE = nil, -- What the run ID is for the current, active, run
+	RUN_IN_PROGRESS = false, -- True when in an active run
+	RUN_RESULT = 0x0, -- Displayed result status
 	CHARACTER_DATA = {},
 	IN_DISPLAY_MENU = nil,
 	DISPLAY_MODE = 0x4,
@@ -40,21 +41,40 @@ local RESULT_COMPLETE	= 0x6	-- Successfully hit all targets
 local RESULT_LRAS		= 0x7	-- Quit using L+R+A+Start
 local RESULT_RESET		= 0x8	-- Reset using Z
 
+local RESULT_TEXT = {
+	[RESULT_NONE] = "NO RESULT",
+	[RESULT_FAILURE] = "FAILURE",
+	[RESULT_COMPLETE] = "COMPLETE",
+	[RESULT_LRAS] = "QUIT",
+	[RESULT_RESET] = "RESET",
+}
+
+function targets.getResultText(result)
+	return RESULT_TEXT[result] or "Unknown result"
+end
+
 local MODE_PREV = 0x0
 local MODE_NEXT = 0x1
 local MODE_PB = 0x2
-local MODE_BEST = 0x3
+local MODE_PREV_PB = 0x3
 local MODE_LAST = 0x4
 local MODE_LAST_COMPLETE = 0x5
 
 local function getMeleeTimestamp(frame)
+	--local minutes = 0
 	local seconds = 0
 	local decimal = math.floor((frame%60)*99/59)/100
 
 	if frame >= 0 then
-		seconds = math.floor(frame/60)+decimal
+		seconds = math.floor(frame/60)
+		--minutes = math.floor(seconds/60)
+		--seconds = seconds % 60
+		seconds = seconds + decimal
 	else
-		seconds = math.ceil(frame/60)-(1-decimal)
+		seconds = math.ceil(frame/60)
+		--minutes = math.ceil(seconds/60)
+		--seconds = seconds % 60
+		seconds = seconds - (1-decimal)
 	end
 
 	return seconds
@@ -204,14 +224,14 @@ function targets.getRunSplits(runid)
 	local splits = {}
 
 	local stmt = timedb:prepare([[
-SELECT run, tframe
+SELECT run, target, tframe
 FROM splits
 WHERE run = ?
 ORDER BY target;]])
 	stmt:bind_values(runid)
 
 	for row in stmt:nrows() do
-		table.insert(splits, row.tframe)
+		splits[row.target] = row.tframe
 	end
 
 	stmt:finalize()
@@ -219,9 +239,24 @@ ORDER BY target;]])
 	return splits
 end
 
+function targets.getRunResult(runid)
+	local stmt = timedb:prepare([[
+SELECT result
+FROM runs
+WHERE run = ?;]])
+	stmt:bind_values(runid)
+
+	stmt:step()
+	local result = stmt[0]
+	stmt:finalize()
+
+	return result
+end
+
 function targets.displayRun(runid)
 	targets.RUN_ID_DISPLAY = runid
 	targets.TIMER_SPLIT_FRAMES_DISPLAY = targets.getRunSplits(runid)
+	targets.RUN_RESULT = targets.getRunResult(runid)
 end
 
 function targets.displayLastRun(character)
@@ -257,10 +292,13 @@ function targets.displayPersonalBestRun(character)
 	if not pbid then return end
 	targets.displayRun(pbid)
 	targets.updateCharRunNumber(character, pbid)
+end
 
-	for k,v in pairs(targets.TIMER_SPLIT_FRAMES_DISPLAY) do
-		targets.TIMER_SPLIT_FRAMES_PB[k] = v
-	end
+function targets.displayPreviousPersonalBestRun(character)
+	local pbid = targets.getPreviousPersonalBestRunID(character, targets.RUN_ID_DISPLAY)
+	if not pbid then return end
+	targets.displayRun(pbid)
+	targets.updateCharRunNumber(character, pbid)
 end
 
 function targets.loadPreviousPersonalBestRun(character)
@@ -325,8 +363,8 @@ function targets.updateDisplayMode()
 		targets.displayNextRun(character)
 	elseif mode == MODE_PB then
 		targets.displayPersonalBestRun(character)
-	--elseif mode == MODE_BEST then
-	--	targets.displayPossibleBestRun(character)
+	elseif mode == MODE_PREV_PB then
+		targets.displayPreviousPersonalBestRun(character)
 	elseif mode == MODE_LAST then
 		targets.displayLastRun(character)
 	elseif mode == MODE_LAST_COMPLETE then
@@ -351,10 +389,10 @@ function targets.createRun()
 	stmt:bind_values(character)
 	stmt:step()
 	stmt:finalize()
-	targets.RUN_ID_DISPLAY = timedb:last_insert_rowid()
-	targets.RUN_ID_ACTIVE = targets.RUN_ID_DISPLAY
-	targets.updateCharRunNumber(character, targets.RUN_ID_DISPLAY)
-	return targets.RUN_ID_DISPLAY
+	targets.RUN_ID_ACTIVE = timedb:last_insert_rowid()
+	targets.RUN_ID_DISPLAY = targets.RUN_ID_ACTIVE
+	targets.updateCharRunNumber(character, targets.RUN_ID_ACTIVE)
+	return targets.RUN_ID_ACTIVE
 end
 
 function targets.saveSplit(target, frames)
@@ -396,7 +434,12 @@ function targets.newRun()
 		targets.TIMER_SPLIT_FRAMES_ACTIVE = {}
 		targets.TIMER_FRAME_COUNT = 0
 		targets.BROKEN = 0
+		targets.RUN_RESULT = RESULT_NONE
 	end
+end
+
+function targets.quit()
+	targets.endRun(RESULT_LRAS)
 end
 
 function targets.endRun(result)
@@ -405,6 +448,7 @@ function targets.endRun(result)
 		targets.RUN_ID_ACTIVE = nil
 		targets.PREV_REMAIN = 10
 		targets.RUN_IN_PROGRESS = false
+		targets.RUN_RESULT = result
 		log.info("Ended run #%d at frame %d - time %02.02f", targets.RUN_ID_DISPLAY, targets.getTimerFrame(), getMeleeTimestamp(targets.getTimerFrame()))
 		targets.updateCharacterStats()
 	end
@@ -462,7 +506,7 @@ end)
 local MENU_BUTTONS = {
 	[0x1] = MODE_PREV,	-- LEFT
 	[0x2] = MODE_NEXT,	-- RIGHT
-	[0x4] = MODE_BEST,	-- DOWN
+	[0x4] = MODE_PREV_PB,	-- DOWN
 	[0x8] = MODE_PB,	-- UP
 	[0x20] = MODE_LAST, -- RIGHT TRIGGER
 	[0x40] = MODE_LAST_COMPLETE, -- LEFT TRIGGER
@@ -633,26 +677,19 @@ function targets.drawSplits()
 	local seconds = getMeleeTimestamp(besttime)
 	local secstr = string.format("Personal Best: %.02f", seconds)
 
-	local secw = SPLIT_SEC:getWidth(secstr)
-
-	graphics.setFont(SPLIT_SEC)
-	graphics.setColor(0, 0, 0, 255)
-	graphics.print(secstr, 4, 448 - 46)
-	graphics.setColor(255, 255, 255, 255)
-	graphics.print(secstr, 4, 448 - 45)
-
-	--[[local sumtime = targets.getCDATA(character, "SumOfBestTime") or 0
-
-	local seconds = getMeleeTimestamp(sumtime)
-	local secstr = string.format("Sum of Best: %.02f", seconds)
-
-	local secw = SPLIT_SEC:getWidth(secstr)
-
 	graphics.setFont(SPLIT_SEC)
 	graphics.setColor(0, 0, 0, 255)
 	graphics.print(secstr, 4, 448 - 24)
 	graphics.setColor(255, 255, 255, 255)
-	graphics.print(secstr, 4, 448 - 23)]]
+	graphics.print(secstr, 4, 448 - 23)
+
+	local resStr = string.format("Result: %s", targets.getResultText(targets.RUN_RESULT))
+
+	graphics.setFont(SPLIT_SEC)
+	graphics.setColor(0, 0, 0, 255)
+	graphics.print(resStr, 4, 448 - 46)
+	graphics.setColor(255, 255, 255, 255)
+	graphics.print(resStr, 4, 448 - 45)
 
 	if targets.IN_DISPLAY_MENU ~= nil then
 		graphics.setColor(0, 0, 0, 200)
