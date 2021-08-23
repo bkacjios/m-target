@@ -250,7 +250,7 @@ WHERE run = ?;]])
 	local result = stmt[0]
 	stmt:finalize()
 
-	return result
+	return result or RESULT_NONE
 end
 
 function targets.displayRun(runid)
