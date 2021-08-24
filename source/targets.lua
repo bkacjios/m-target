@@ -149,9 +149,9 @@ end
 
 function targets.updateCharRunNumber(character, id)
 	local stmt = timedb:prepare("SELECT COUNT(*) FROM runs WHERE character=? AND run<=?")
-	stmt:bind_values(character, id or targets.RUN_ID_DISPLAY)
+	stmt:bind_values(character, id)
 	stmt:step()
-	targets.RUN_NUMBER = stmt[0]
+	targets.RUN_NUMBER = stmt[0] or 0
 	stmt:finalize()
 end
 
@@ -181,7 +181,7 @@ function targets.getPrevCompletedRunID(character, id)
 	stmt:step()
 	local lid = stmt[0]
 	stmt:finalize()
-	return lid or id
+	return lid
 end
 
 function targets.getPrevRunID(character, id)
@@ -190,7 +190,7 @@ function targets.getPrevRunID(character, id)
 	stmt:step()
 	local pid = stmt[0]
 	stmt:finalize()
-	return pid or id
+	return pid
 end
 
 function targets.getNextRunID(character, id)
@@ -199,7 +199,7 @@ function targets.getNextRunID(character, id)
 	stmt:step()
 	local nid = stmt[0]
 	stmt:finalize()
-	return nid or id
+	return nid
 end
 
 function targets.getPersonalBestRunID(character)
@@ -217,11 +217,13 @@ function targets.getPreviousPersonalBestRunID(character, id)
 	stmt:step()
 	local pbid = stmt[0]
 	stmt:finalize()
-	return pbid or id
+	return pbid
 end
 
 function targets.getRunSplits(runid)
 	local splits = {}
+
+	if not runid then return splits end
 
 	local stmt = timedb:prepare([[
 SELECT run, target, tframe
@@ -251,6 +253,13 @@ WHERE run = ?;]])
 	stmt:finalize()
 
 	return result or RESULT_NONE
+end
+
+function targets.displayReset()
+	targets.TIMER_SPLIT_FRAMES_PB = {}
+	targets.RUN_ID_DISPLAY = 0
+	targets.RUN_ID_ACTIVE = 0
+	targets.RUN_NUMBER = 0
 end
 
 function targets.displayRun(runid)
@@ -303,7 +312,6 @@ end
 
 function targets.loadPreviousPersonalBestRun(character)
 	local pbid = targets.getPreviousPersonalBestRunID(character, targets.RUN_ID_DISPLAY)
-	if not pbid then return end
 	targets.TIMER_SPLIT_FRAMES_PB = targets.getRunSplits(pbid)
 end
 
@@ -456,6 +464,7 @@ end
 
 memory.hook("player.1.select.character", "Targets - Update Count", function(character)
 	if targets.isInBTTCSS() then
+		targets.displayReset()
 		targets.setDisplayMode(MODE_LAST)
 	end
 end)
@@ -649,26 +658,28 @@ function targets.drawSplits()
 			graphics.setColor(255, 255, 255, 255)
 			graphics.print(secstr, 320 - 8 - secw, y-1)
 
-			local bt = targets.TIMER_SPLIT_FRAMES_PB[i] or t
-			local dt = t - bt
+			if targets.TIMER_SPLIT_FRAMES_PB[i] then
+				local bt = targets.TIMER_SPLIT_FRAMES_PB[i]
+				local dt = t - bt
 
-			local seconds = getMeleeTimestamp(dt)
-			local secstr = string.format("%+2.02f", seconds)
+				local seconds = getMeleeTimestamp(dt)
+				local secstr = string.format("%+2.02f", seconds)
 
-			local bsecw = SPLIT_SEC:getWidth(secstr)
+				local bsecw = SPLIT_SEC:getWidth(secstr)
 
-			graphics.setFont(SPLIT_SEC)
-			graphics.setColor(0, 0, 0, 255)
-			graphics.print(secstr, 320 - 8 - secw - 8 - bsecw, y)
+				graphics.setFont(SPLIT_SEC)
+				graphics.setColor(0, 0, 0, 255)
+				graphics.print(secstr, 320 - 8 - secw - 8 - bsecw, y)
 
-			if dt > 0 then
-				graphics.setColor(225, 0, 0, 255)
-			elseif dt == 0 then
-				graphics.setColor(155, 155, 155, 255)
-			elseif dt < 0 then
-				graphics.setColor(0, 155, 40, 255)
+				if dt > 0 then
+					graphics.setColor(225, 0, 0, 255)
+				elseif dt == 0 then
+					graphics.setColor(155, 155, 155, 255)
+				elseif dt < 0 then
+					graphics.setColor(0, 155, 40, 255)
+				end
+				graphics.print(secstr, 320 - 8 - secw - 8 - bsecw, y-1)
 			end
-			graphics.print(secstr, 320 - 8 - secw - 8 - bsecw, y-1)
 		end
 	end
 

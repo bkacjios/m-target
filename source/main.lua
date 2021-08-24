@@ -29,6 +29,7 @@ local ease = require("ease")
 local graphics = love.graphics
 local newImage = graphics.newImage
 
+local DEBUG_FONT = graphics.getFont()
 local PORT_FONT = graphics.newFont("fonts/melee-bold.otf", 42)
 local WAITING_FONT = graphics.newFont("fonts/melee-bold.otf", 24)
 
@@ -36,6 +37,7 @@ local GRADIENT = newImage("textures/gradient.png")
 local DOLPHIN = newImage("textures/dolphin.png")
 local GAME = newImage("textures/game.png")
 local MELEE = newImage("textures/meleedisk.png")
+local TARGET = newImage("textures/icon.png")
 local MELEELABEL = newImage("textures/meleedisklabel.png")
 local SHADOW = newImage("textures/shadow.png")
 
@@ -122,7 +124,7 @@ do
 
 	local canvas = love.graphics.newCanvas()
 
-	function love.drawTrobber(game)
+	function love.drawTrobber(texture, blurtexture)
 		local t = love.timer.getTime()
 		local dt = love.timer.getDelta()
 
@@ -132,7 +134,7 @@ do
 
 		local rotate_speed = 0
 		
-		if not game then
+		if not texture then
 			if not icon_time_start or icon_time_next < t then
 				icon_time_start = t
 				icon_time_show = t + 1
@@ -161,30 +163,30 @@ do
 		graphics.setCanvas(canvas)
 
 		graphics.clear(0,0,0,0)
-		if not game then
+		if not texture then
 			graphics.setBlendMode("replace", "premultiplied")
 		end
 
 		graphics.setScissor(160-80-20, 0, 160+40, 160)
 
-		local icon = game and MELEE or DOLPHIN
+		local icon = texture or DOLPHIN
 
 		graphics.setColor(255, 255, 255, 255)
 		graphics.easyDraw(icon, 160+lx, 64+40+ly, math.rad(rx), 80, 80, 0.5, 0.5)
 		
-		if game then
+		if texture and blurtexture then
 			local p = rotate_speed/13
 
 			for i=0, 16 do
 				local j = rotate_speed - i
 				graphics.setColor(255, 255, 255, rotate_speed*4)
-				graphics.easyDraw(MELEELABEL, 160+lx, 64+40+ly, math.rad(rx-(i*p*4)), 80, 80, 0.5, 0.5)
+				graphics.easyDraw(blurtexture, 160+lx, 64+40+ly, math.rad(rx-(i*p*4)), 80, 80, 0.5, 0.5)
 			end
 		end
 
 		graphics.setScissor()
 
-		if not game then
+		if not texture then
 			graphics.setBlendMode("multiply", "premultiplied")
 
 			graphics.easyDraw(GRADIENT, 160-80-20, 0, 0, 80, 256)
@@ -195,7 +197,7 @@ do
 
 		graphics.setBlendMode("alpha", "alphamultiply")
 
-		if game then
+		if texture then
 			local sw = math.sinlerp(0.5, 1, t*3)
 			graphics.setColor(125, 125, 125, 150)
 			graphics.easyDraw(SHADOW, 160, 154, 0, 64*sw, 6*sw, 0.5, 0.5)
@@ -280,10 +282,15 @@ function love.draw()
 	end
 
 	if memory.initialized and memory.game and memory.controller then
-		targets.drawSplits()
+		if targets.isBTTMode() then
+			targets.drawSplits()
+		else
+			love.drawTrobber(TARGET)
+			love.drawNotificationText("Waiting for Target Test")
+		end
 	else
 		if memory.hooked then
-			love.drawTrobber(true)
+			love.drawTrobber(MELEE, MELEELABEL)
 			love.drawNotificationText("Waiting for melee")
 		else
 			love.drawTrobber()

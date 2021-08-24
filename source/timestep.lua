@@ -95,7 +95,7 @@ function love.run()
 				love.timer.sleep(1 / LIMIT_FPS_CAP - ftime)
 			else
 				-- Fallback to 1000fps cap
-				love.timer.sleep(0.001)
+				love.timer.sleep(1 / 1000)
 			end
 		end
 	end
