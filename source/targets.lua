@@ -456,7 +456,7 @@ end
 
 memory.hook("player.1.select.character", "Targets - Update Count", function(character)
 	if targets.isInBTTCSS() then
-		targets.updateCharacterStats()
+		targets.setDisplayMode(MODE_LAST)
 	end
 end)
 
