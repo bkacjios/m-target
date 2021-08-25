@@ -12,7 +12,7 @@ local targets = {
 	IN_DISPLAY_MENU = nil,
 	DISPLAY_MODE = 0x4,
 	BROKEN = 0,
-	PREV_REMAIN = 10,
+	IGNORE_TARGET_RESET = false,
 }
 
 local log = require("log")
@@ -220,10 +220,14 @@ function targets.getPreviousPersonalBestRunID(character, id)
 	return pbid
 end
 
-function targets.getRunSplits(runid)
-	local splits = {}
+function targets.getRunData(runid)
+	local data = {
+		tframe = 0,
+		broken = 0,
+		splits = {},
+	}
 
-	if not runid then return splits end
+	if not runid then return data end
 
 	local stmt = timedb:prepare([[
 SELECT run, target, tframe
@@ -233,12 +237,14 @@ ORDER BY target;]])
 	stmt:bind_values(runid)
 
 	for row in stmt:nrows() do
-		splits[row.target] = row.tframe
+		data.splits[row.target] = row.tframe
+		data.broken = row.target
+		data.tframe = row.tframe
 	end
 
 	stmt:finalize()
 
-	return splits
+	return data
 end
 
 function targets.getRunResult(runid)
@@ -256,6 +262,8 @@ WHERE run = ?;]])
 end
 
 function targets.displayReset()
+	targets.TIMER_SPLIT_FRAMES_DISPLAY = {}
+	targets.TIMER_SPLIT_FRAMES_ACTIVE = {}
 	targets.TIMER_SPLIT_FRAMES_PB = {}
 	targets.RUN_ID_DISPLAY = 0
 	targets.RUN_ID_ACTIVE = 0
@@ -264,8 +272,19 @@ end
 
 function targets.displayRun(runid)
 	targets.RUN_ID_DISPLAY = runid
-	targets.TIMER_SPLIT_FRAMES_DISPLAY = targets.getRunSplits(runid)
+
+	local data = targets.getRunData(runid)
+
+	targets.TIMER_SPLIT_FRAMES_DISPLAY = data.splits
 	targets.RUN_RESULT = targets.getRunResult(runid)
+
+	if targets.RUN_ID_DISPLAY == targets.RUN_ID_ACTIVE then
+		targets.BROKEN = 10 - memory.stage.targets
+	else
+		targets.BROKEN = data.broken
+	end
+
+	targets.TIMER_FRAME_COUNT = data.tframe
 end
 
 function targets.displayLastRun(character)
@@ -312,7 +331,7 @@ end
 
 function targets.loadPreviousPersonalBestRun(character)
 	local pbid = targets.getPreviousPersonalBestRunID(character, targets.RUN_ID_DISPLAY)
-	targets.TIMER_SPLIT_FRAMES_PB = targets.getRunSplits(pbid)
+	targets.TIMER_SPLIT_FRAMES_PB = targets.getRunData(pbid).splits
 end
 
 function targets.displayPossibleBestRun(character)
@@ -378,8 +397,6 @@ function targets.updateDisplayMode()
 	elseif mode == MODE_LAST_COMPLETE then
 		targets.displayPrevCompletedRun(character)
 	end
-	targets.BROKEN = #targets.TIMER_SPLIT_FRAMES_DISPLAY
-	targets.TIMER_FRAME_COUNT = targets.TIMER_SPLIT_FRAMES_DISPLAY[#targets.TIMER_SPLIT_FRAMES_DISPLAY]
 	targets.loadPreviousPersonalBestRun(character)
 end
 
@@ -435,13 +452,14 @@ end
 
 function targets.newRun()
 	if targets.isInBTTMatch() and not targets.isValidRun() then
+		targets.setDisplayMode(MODE_LAST)
 		log.info("Started run #%d at game frame %d", targets.createRun(), memory.frame)
+		targets.IGNORE_TARGET_RESET = true
 		targets.IN_DISPLAY_MENU = nil
-		targets.DISPLAY_MODE = MODE_LAST
 		targets.RUN_IN_PROGRESS = true
 		targets.TIMER_SPLIT_FRAMES_ACTIVE = {}
 		targets.TIMER_FRAME_COUNT = 0
-		targets.BROKEN = 0
+		targets.BROKEN = 10 - memory.stage.targets
 		targets.RUN_RESULT = RESULT_NONE
 	end
 end
@@ -454,7 +472,6 @@ function targets.endRun(result)
 	if targets.isValidRun() then
 		targets.saveResults(result)
 		targets.RUN_ID_ACTIVE = nil
-		targets.PREV_REMAIN = 10
 		targets.RUN_IN_PROGRESS = false
 		targets.RUN_RESULT = result
 		log.info("Ended run #%d at frame %d - time %02.02f", targets.RUN_ID_DISPLAY, targets.getTimerFrame(), getMeleeTimestamp(targets.getTimerFrame()))
@@ -486,22 +503,40 @@ memory.hook("match.result", "Targets - Check start of game", function(result)
 	end
 end)
 
-memory.hook("stage.targets", "Targets - Save Split", function(remain)
-	local frame = memory.match.timer.frame
+memory.hook("stage.targets", "Targets - Save Split", function(remain, prev_remain)
+	if targets.IGNORE_TARGET_RESET then
+		targets.IGNORE_TARGET_RESET = false
 
-	-- Ignore when remaining target count is 0 or 10 at frame 0
-	-- this can only happen when loading into the target test or retrying
-	if (remain == 10 or remain == 0) and frame == 0 then return end
+		--[[
+			When exiting back to the CSS screen, the remaining targets value doesn't reset yet. So if we had
+			7 targets remaining, it would still think there are 7 targets left initialiy.
+			When you select a character, it will start off by setting the remaining target count to 0.
+			This tricks our split recorder into thinking we broke the remaining 3 targets.
 
-	local count = targets.PREV_REMAIN - remain
-	local decresed = targets.PREV_REMAIN > remain
+			-----------
+			targets-remain = 7;
+			[LRA+S pressed, exiting to menu];
+			targets-remain = 7;
+			[Character selected + loading stage]
+			targets-remain = 0;
+			[Stage finished loading]
+			targets-remain = 10;
+			-----------
+
+			This section of code checks to see if we are resetting the remain count back to 0 AND IGNORES IT.
+		]]
+		
+		if remain == 0 then return end
+	end
+
+	if not targets.isValidRun() then return end
+
+	local decresed = prev_remain > remain
 
 	local endpos = 10-remain
-	local startpos = (10-targets.PREV_REMAIN)+1
+	local startpos = (10-prev_remain)+1
 
-	targets.PREV_REMAIN = remain
-
-	if decresed and memory.match.finished == false then
+	if decresed then
 		-- Only log splits when the target count decreases
 		for i=startpos, endpos do
 			-- We can hit more than one target in a single frame, so loop through and mark every single one as hit
@@ -680,6 +715,15 @@ function targets.drawSplits()
 				end
 				graphics.print(secstr, 320 - 8 - secw - 8 - bsecw, y-1)
 			end
+		elseif i < current then
+			-- This will only happen if we launch the program mid BTT run
+			local secstr = "- -"
+			local secw = SPLIT_SEC:getWidth(secstr)
+			graphics.setFont(SPLIT_SEC)
+			graphics.setColor(0, 0, 0, 255)
+			graphics.print(secstr, 320 - 8 - secw, y)
+			graphics.setColor(155, 155, 155, 255)
+			graphics.print(secstr, 320 - 8 - secw, y-1)
 		end
 	end
 

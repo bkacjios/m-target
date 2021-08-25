@@ -40,6 +40,8 @@ local memory = {
 	wildcard_hooks = {},
 
 	hook_queue = {},
+
+	game_frame = 0,
 }
 
 cloneloader.loadFile("clones.lua", memory.clones)
@@ -288,16 +290,17 @@ function ADDRESS:update()
 
 	-- Check if there has been a value change
 	if self.cache_value ~= value then
+		local prev = self.cache_value
 		self.cache_value = value
 		self.cache[self.cache_key] = self.cache_value
 
 		if self.debug then
 			local numValue = tonumber(orig) or tonumber(value) or (value and 1 or 0)
-			log.debug("[MEMORY] [%d][0x%08X  = 0x%08X] %s = %s", memory.frame, self.address + self.offset, numValue, self.name, value)
+			log.debug("[MEMORY] [%d][0x%08X  = 0x%08X] %s = %s", memory.game_frame, self.address + self.offset, numValue, self.name, value)
 		end
 
 		-- Queue up a hook event
-		table.insert(memory.hook_queue, {name = self.name, value = value, debug = self.debug})
+		table.insert(memory.hook_queue, {name = self.name, value = value, prev = prev, debug = self.debug})
 	end
 end
 
@@ -369,9 +372,9 @@ do
 			self.location = ploc
 
 			if valid then
-				log.debug("[MEMORY] [%d][0x%08X -> 0x%08X] %s -> 0x%08X", memory.frame, addr, ploc, self.name, ploc)
+				log.debug("[MEMORY] [%d][0x%08X -> 0x%08X] %s -> 0x%08X", memory.game_frame, addr, ploc, self.name, ploc)
 			else
-				log.debug("[MEMORY] [%d][0x%08X -> 0x0 (NULL)] %s -> 0x%08X", memory.frame, addr, self.name, ploc)
+				log.debug("[MEMORY] [%d][0x%08X -> 0x0 (NULL)] %s -> 0x%08X", memory.game_frame, addr, self.name, ploc)
 			end
 		end
 
@@ -593,7 +596,7 @@ function memory.runhooks()
 	while true do
 		pop = table.remove(memory.hook_queue, 1)
 		if not pop then break end
-		memory.runhook(pop.name, pop.value)
+		memory.runhook(pop.name, pop.value, pop.prev)
 	end
 end
 
