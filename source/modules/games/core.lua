@@ -1,5 +1,31 @@
 local core = {}
 
+local GAME = {}
+GAME.__index = GAME
+
+function GAME:map(address, structure)
+	self.memorymap[address] = structure
+end
+
+function core.newGame(...)
+	local game = setmetatable({
+		memorymap = {},
+		translateJoyStick = core.translateJoyStick,
+		translateCStick = core.translateCStick,
+		translateTriggers = core.translateTriggers,
+	}, GAME)
+
+	local genericControllers = {...}
+
+	if #genericControllers > 0 then
+		for k, addr in ipairs(genericControllers) do
+			core.loadGenericControllerMap(addr, game)
+		end
+	end
+
+	return game
+end
+
 function core.loadGenericControllerMap(addr, game)
 	local controllers = {
 		[1] = addr + 0xC * 0,
