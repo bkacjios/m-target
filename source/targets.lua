@@ -695,10 +695,9 @@ function targets.drawSplits()
 
 			if targets.TIMER_SPLIT_FRAMES_PB[i] then
 				local bt = targets.TIMER_SPLIT_FRAMES_PB[i]
-				local dt = t - bt
+				local dt = getMeleeTimestamp(t) - getMeleeTimestamp(bt)
 
-				local seconds = getMeleeTimestamp(dt)
-				local secstr = string.format("%+2.02f", seconds)
+				local secstr = string.format("%+2.02f", dt)
 
 				local bsecw = SPLIT_SEC:getWidth(secstr)
 
