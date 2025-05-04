@@ -9,7 +9,8 @@ local targets = {
 	RUN_IN_PROGRESS = false, -- True when in an active run
 	RUN_RESULT = 0x0, -- Displayed result status
 	CHARACTER_DATA = {},
-	IN_DISPLAY_MENU = nil,
+	SELECTING_MENU_ITEM = nil,
+	IN_DELETE_CONFIRM = false,
 	DISPLAY_MODE = 0x4,
 	BROKEN = 0,
 	IGNORE_TARGET_RESET = false,
@@ -19,6 +20,7 @@ local log = require("log")
 local memory = require("memory")
 local melee = require("melee")
 local lsqlite3 = require("lsqlite3")
+local notification = require("notification")
 
 local graphics = love.graphics
 
@@ -34,6 +36,7 @@ local DPAD_GATE = graphics.newImage("textures/buttons/d-pad-gate-filled.png")
 
 local L_PRESSED = graphics.newImage("textures/buttons/l-pressed.png")
 local R_PRESSED = graphics.newImage("textures/buttons/r-pressed.png")
+local X_PRESSED = graphics.newImage("textures/buttons/x-pressed.png")
 
 local RESULT_NONE		= 0x0	-- Set at the start
 local RESULT_FAILURE	= 0x4	-- Fell off the stage
@@ -59,22 +62,20 @@ local MODE_PB = 0x2
 local MODE_PREV_PB = 0x3
 local MODE_LAST = 0x4
 local MODE_LAST_COMPLETE = 0x5
+local MODE_DELETE = 0x6
+
+local MODE_DELETE_CANCEL = 0x0
+local MODE_DELETE_CONFIRM = 0x1
 
 local function getMeleeTimestamp(frame)
 	--local minutes = 0
-	local seconds = 0
+	local seconds
 	local decimal = math.floor((frame%60)*99/59)/100
 
 	if frame >= 0 then
-		seconds = math.floor(frame/60)
-		--minutes = math.floor(seconds/60)
-		--seconds = seconds % 60
-		seconds = seconds + decimal
+		seconds = math.floor(frame/60) + decimal
 	else
-		seconds = math.ceil(frame/60)
-		--minutes = math.ceil(seconds/60)
-		--seconds = seconds % 60
-		seconds = seconds - (1-decimal)
+		seconds = math.ceil(frame/60) - (1-decimal)
 	end
 
 	return seconds
@@ -88,8 +89,32 @@ timedb:exec([[CREATE TABLE IF NOT EXISTS runs (
 	tframe		INTEGER, -- #frames the timer spent active
 	gframe		INTEGER, -- #frames in total (including before timer start)
 	targets		INTEGER, -- #targets that were hit
-	result		INTEGER	 -- result status at the end (complete, failure, retry, etc)
+	result		INTEGER, -- result status at the end (complete, failure, retry, etc)
+	deleted		INTEGER DEFAULT 0  -- run should be excluded in any data calculations
 );]])
+
+do
+	-- Update runs table to add deleted column (<=1.0)
+	local stmt   = timedb:prepare("PRAGMA table_info(runs);")
+	local has_deleted = false
+
+	while stmt:step() do
+		local col_name = stmt:get_value(1) -- column "name" is field index 1
+		if col_name == "deleted" then
+			has_deleted = true
+			break
+		end
+	end
+	stmt:finalize()
+
+	if not has_deleted then
+		timedb:exec([[
+			ALTER TABLE runs
+			ADD COLUMN deleted INTEGER NOT NULL
+			DEFAULT 0
+			CHECK(deleted IN (0,1));]])
+		end
+end
 
 timedb:exec([[CREATE TABLE IF NOT EXISTS splits (
 	run			INTEGER NOT NULL, -- the RUN_ID that this split is tied to
@@ -148,7 +173,7 @@ function targets.getCDATA(character, name)
 end
 
 function targets.updateCharRunNumber(character, id)
-	local stmt = timedb:prepare("SELECT COUNT(*) FROM runs WHERE character=? AND run<=?")
+	local stmt = timedb:prepare("SELECT COUNT(*) FROM runs WHERE character=? AND run<=?;")
 	stmt:bind_values(character, id)
 	stmt:step()
 	targets.RUN_NUMBER = stmt[0] or 0
@@ -156,7 +181,7 @@ function targets.updateCharRunNumber(character, id)
 end
 
 function targets.getBestTime(character)
-	local stmt = timedb:prepare("SELECT tframe FROM runs WHERE character=? AND gframe IS NOT NULL AND result=6 ORDER BY gframe ASC LIMIT 1;")
+	local stmt = timedb:prepare("SELECT tframe FROM runs WHERE character=? AND gframe IS NOT NULL AND result=6 AND deleted <> 1 ORDER BY gframe ASC LIMIT 1;")
 	stmt:bind_values(character)
 
 	stmt:step()
@@ -167,7 +192,7 @@ function targets.getBestTime(character)
 end
 
 function targets.getLastRunID(character)
-	local stmt = timedb:prepare("SELECT run FROM runs WHERE character=? ORDER BY run DESC LIMIT 1;")
+	local stmt = timedb:prepare("SELECT run FROM runs WHERE character=? AND deleted <> 1 ORDER BY run DESC LIMIT 1;")
 	stmt:bind_values(character)
 	stmt:step()
 	local lid = stmt[0]
@@ -176,7 +201,7 @@ function targets.getLastRunID(character)
 end
 
 function targets.getPrevCompletedRunID(character, id)
-	local stmt = timedb:prepare("SELECT run FROM runs WHERE character=? AND result=6 AND run<? ORDER BY run DESC LIMIT 1;")
+	local stmt = timedb:prepare("SELECT run FROM runs WHERE character=? AND result=6 AND run<? AND deleted <> 1 ORDER BY run DESC LIMIT 1;")
 	stmt:bind_values(character, id)
 	stmt:step()
 	local lid = stmt[0]
@@ -185,7 +210,7 @@ function targets.getPrevCompletedRunID(character, id)
 end
 
 function targets.getPrevRunID(character, id)
-	local stmt = timedb:prepare("SELECT run FROM runs WHERE character=? AND run<? ORDER BY run DESC LIMIT 1;")
+	local stmt = timedb:prepare("SELECT run FROM runs WHERE character=? AND run<? AND deleted <> 1 ORDER BY run DESC LIMIT 1;")
 	stmt:bind_values(character, id)
 	stmt:step()
 	local pid = stmt[0]
@@ -194,7 +219,7 @@ function targets.getPrevRunID(character, id)
 end
 
 function targets.getNextRunID(character, id)
-	local stmt = timedb:prepare("SELECT run FROM runs WHERE character=? AND run>? ORDER BY run ASC LIMIT 1;")
+	local stmt = timedb:prepare("SELECT run FROM runs WHERE character=? AND run>? AND deleted <> 1 ORDER BY run ASC LIMIT 1;")
 	stmt:bind_values(character, id)
 	stmt:step()
 	local nid = stmt[0]
@@ -203,7 +228,7 @@ function targets.getNextRunID(character, id)
 end
 
 function targets.getPersonalBestRunID(character)
-	local stmt = timedb:prepare("SELECT run FROM runs WHERE character=? AND result=6 ORDER BY gframe LIMIT 1;")
+	local stmt = timedb:prepare("SELECT run FROM runs WHERE character=? AND result=6 AND deleted <> 1 ORDER BY gframe ASC, run DESC LIMIT 1;")
 	stmt:bind_values(character)
 	stmt:step()
 	local pbid = stmt[0]
@@ -212,7 +237,7 @@ function targets.getPersonalBestRunID(character)
 end
 
 function targets.getPreviousPersonalBestRunID(character, id)
-	local stmt = timedb:prepare("SELECT run FROM runs WHERE character=? AND result=6 AND run<? ORDER BY gframe LIMIT 1;")
+	local stmt = timedb:prepare("SELECT run FROM runs WHERE character=? AND result=6 AND run<? AND deleted <> 1 ORDER BY gframe ASC, run DESC LIMIT 1;")
 	stmt:bind_values(character, id)
 	stmt:step()
 	local pbid = stmt[0]
@@ -376,28 +401,51 @@ SELECT SUM(time) FROM (
 	return data
 end
 
+function targets.deleteRun(character)
+	local stmt = timedb:prepare("UPDATE runs SET deleted=1 WHERE run=?;")
+	stmt:bind_values(targets.RUN_ID_DISPLAY)
+	stmt:step()
+	stmt:finalize()
+end
+
 function targets.setDisplayMode(mode)
 	targets.DISPLAY_MODE = mode
 	targets.updateDisplayMode()
 end
 
-function targets.updateDisplayMode()
-	local character = targets.getCharacter()
-	local mode = targets.DISPLAY_MODE
-	if mode == MODE_PREV then
-		targets.displayPrevRun(character)
-	elseif mode == MODE_NEXT then
-		targets.displayNextRun(character)
-	elseif mode == MODE_PB then
-		targets.displayPersonalBestRun(character)
-	elseif mode == MODE_PREV_PB then
-		targets.displayPreviousPersonalBestRun(character)
-	elseif mode == MODE_LAST then
-		targets.displayLastRun(character)
-	elseif mode == MODE_LAST_COMPLETE then
-		targets.displayPrevCompletedRun(character)
+function targets.confirmDelete(mode)
+	if mode == MODE_DELETE_CONFIRM or mode == MODE_DELETE_CANCEL then
+		if targets.RUN_ID_ACTIVE == targets.RUN_ID_DISPLAY then
+			notification.warning("Cannot delete active run")
+		elseif mode == MODE_DELETE_CONFIRM then
+			local character = targets.getCharacter()
+			targets.deleteRun(character)
+			targets.displayNextRun(character)
+			targets.loadPreviousPersonalBestRun(character)
+		end
+		targets.IN_DELETE_CONFIRM = false
+		targets.SELECTING_MENU_ITEM = nil
 	end
-	targets.loadPreviousPersonalBestRun(character)
+end
+
+do
+	local mode_functions = {
+		[MODE_PREV] = targets.displayPrevRun,
+		[MODE_NEXT] = targets.displayNextRun,
+		[MODE_PB] = targets.displayPersonalBestRun,
+		[MODE_PREV_PB] = targets.displayPreviousPersonalBestRun,
+		[MODE_LAST] = targets.displayLastRun,
+		[MODE_LAST_COMPLETE] = targets.displayPrevCompletedRun,
+	}
+
+	function targets.updateDisplayMode()
+		local mode = targets.DISPLAY_MODE
+		if mode_functions[mode] then
+			local character = targets.getCharacter()
+			mode_functions[mode](character)
+			targets.loadPreviousPersonalBestRun(character)
+		end
+	end
 end
 
 function targets.updateCharacterStats()
@@ -436,10 +484,12 @@ function targets.saveSplit(target, frames)
 end
 
 function targets.saveResults(result)
-	local stmt = timedb:prepare("UPDATE runs SET tframe=?, gframe=?, targets=?, result=? WHERE run=?;")
-	stmt:bind_values(targets.getTimerFrame(), memory.frame, 10 - memory.stage.targets, result or memory.match.result, targets.RUN_ID_ACTIVE)
-	stmt:step()
-	stmt:finalize()
+	if memory.frame ~= nil then
+		local stmt = timedb:prepare("UPDATE runs SET tframe=?, gframe=?, targets=?, result=? WHERE run=?;")
+		stmt:bind_values(targets.getTimerFrame(), memory.frame, 10 - memory.stage.targets, result or memory.match.result, targets.RUN_ID_ACTIVE)
+		stmt:step()
+		stmt:finalize()
+	end
 end
 
 function targets.isValidRun()
@@ -455,7 +505,7 @@ function targets.newRun()
 		targets.setDisplayMode(MODE_LAST)
 		log.info("Started run #%d at game frame %d", targets.createRun(), memory.frame)
 		targets.IGNORE_TARGET_RESET = true
-		targets.IN_DISPLAY_MENU = nil
+		targets.SELECTING_MENU_ITEM = nil
 		targets.RUN_IN_PROGRESS = true
 		targets.TIMER_SPLIT_FRAMES_ACTIVE = {}
 		targets.TIMER_FRAME_COUNT = 0
@@ -506,7 +556,6 @@ end)
 memory.hook("stage.targets", "Targets - Save Split", function(remain, prev_remain)
 	if targets.IGNORE_TARGET_RESET then
 		targets.IGNORE_TARGET_RESET = false
-
 		--[[
 			When exiting back to the CSS screen, the remaining targets value doesn't reset yet. So if we had
 			7 targets remaining, it would still think there are 7 targets left initialiy.
@@ -525,7 +574,6 @@ memory.hook("stage.targets", "Targets - Save Split", function(remain, prev_remai
 
 			This section of code checks to see if we are resetting the remain count back to 0 AND IGNORES IT.
 		]]
-		
 		if remain == 0 then return end
 	end
 
@@ -548,15 +596,22 @@ memory.hook("stage.targets", "Targets - Save Split", function(remain, prev_remai
 end)
 
 local MENU_BUTTONS = {
-	[0x1] = MODE_PREV,	-- LEFT
-	[0x2] = MODE_NEXT,	-- RIGHT
-	[0x4] = MODE_PREV_PB,	-- DOWN
-	[0x8] = MODE_PB,	-- UP
-	[0x20] = MODE_LAST, -- RIGHT TRIGGER
-	[0x40] = MODE_LAST_COMPLETE, -- LEFT TRIGGER
+	[0x1] = MODE_PREV,				-- LEFT
+	[0x2] = MODE_NEXT,				-- RIGHT
+	[0x4] = MODE_PREV_PB,			-- DOWN
+	[0x8] = MODE_PB,				-- UP
+	[0x400] = MODE_DELETE,			-- X
+	[0x20] = MODE_LAST,				-- RIGHT TRIGGER
+	[0x40] = MODE_LAST_COMPLETE,	-- LEFT TRIGGER
+}
+
+local MENU_DELETE_BUTTONS = {
+	[0x4] = MODE_DELETE_CANCEL,		-- DOWN
+	[0x8] = MODE_DELETE_CONFIRM,	-- UP
 }
 
 local MENU_TEXT = graphics.newImage("textures/buttons/labels.png")
+local MENU_DELETE_TEXT = graphics.newImage("textures/buttons/delete.png")
 
 local DPAD_TEXTURES = {
 	[0x1] = graphics.newImage("textures/buttons/d-pad-pressed-left.png"),
@@ -569,13 +624,22 @@ memory.hook("controller.*.buttons.pressed", "Targets - Mode Switcher", function(
 	-- Only allow split traversal when we are paused or in the menus
 	if not melee.isInMenus() and not targets.isPaused() then return end
 
-	if targets.IN_DISPLAY_MENU and pressed == 0x0 then
-		targets.setDisplayMode(targets.IN_DISPLAY_MENU)
-		targets.IN_DISPLAY_MENU = nil
+	if targets.IN_DELETE_CONFIRM and pressed == 0x0 then
+		targets.confirmDelete(targets.SELECTING_MENU_ITEM)
+	elseif targets.SELECTING_MENU_ITEM ~= nil and pressed == 0x0 then
+		if targets.SELECTING_MENU_ITEM == MODE_DELETE then
+			if not targets.IN_DELETE_CONFIRM == true then
+				targets.IN_DELETE_CONFIRM = true
+			end
+		else
+			targets.setDisplayMode(targets.SELECTING_MENU_ITEM)
+		end
+		targets.SELECTING_MENU_ITEM = nil
 	else
-		for but, mode in pairs(MENU_BUTTONS) do
+		local menuButtons = targets.IN_DELETE_CONFIRM and MENU_DELETE_BUTTONS or MENU_BUTTONS
+		for but, mode in pairs(menuButtons) do
 			if bit.band(pressed, but) == but then
-				targets.IN_DISPLAY_MENU = mode
+				targets.SELECTING_MENU_ITEM = mode
 				break
 			end
 		end
@@ -597,7 +661,39 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords)
 }
 ]]
 
+local blur = graphics.newShader([[
+extern number radius;
+extern vec2 imageSize;
+
+// precompute sigma = radius/2 in Lua and send it in too, or compute here:
+float gaussian(float x, float sigma) {
+    return exp(- (x*x)/(2.0*sigma*sigma)) / (sqrt(6.2831853)*sigma);
+}
+
+vec4 effect(vec4 _c, Image tex, vec2 uv, vec2 screenPos) {
+    int R = int(radius + 0.5);
+    float sigma = max(0.01, radius/2.0);
+    vec4 sum = vec4(0.0);
+    float wsum = 0.0;
+
+    for (int x = -R; x <= R; x++) {
+      for (int y = -R; y <= R; y++) {
+        float w = gaussian(float(x), sigma) * gaussian(float(y), sigma);
+        vec2 off = vec2(x, y) / imageSize;
+        sum  += Texel(tex, uv + off) * w;
+        wsum += w;
+      }
+    }
+    return sum / wsum;
+}
+]])
+
+local bgCanvas = graphics.newCanvas(320, 448)
+
 function targets.drawSplits()
+	graphics.setCanvas(bgCanvas)
+	graphics.clear(0, 0, 0, 0)
+
 	local port = targets.getActivePort()
 	local character = targets.getCharacter()
 
@@ -745,13 +841,36 @@ function targets.drawSplits()
 	graphics.setColor(255, 255, 255, 255)
 	graphics.print(resStr, 4, 448 - 45)
 
-	if targets.IN_DISPLAY_MENU ~= nil then
+	graphics.setCanvas()
+
+	local bw, bh = bgCanvas:getWidth(), bgCanvas:getHeight()
+
+	local inMenu = targets.SELECTING_MENU_ITEM ~= nil or targets.IN_DELETE_CONFIRM
+
+	if inMenu or PANEL_SETTINGS:IsVisible() then
+		blur:send("radius", 4)
+		blur:send("imageSize", {bw, bh})
+		graphics.setShader(blur)
+	end
+	graphics.setColor(255,255,255,255)
+	graphics.draw(bgCanvas, 0, 0)
+	graphics.setShader()
+	if inMenu then
 		graphics.setColor(0, 0, 0, 200)
 		graphics.rectangle("fill", 0, 0, 320, 448)
-
 		graphics.setColor(255, 255, 255, 255)
+	end
 
-		local controller = memory.controller[port].buttons
+	local controller = memory.controller[port].buttons
+	if targets.IN_DELETE_CONFIRM then
+		graphics.easyDraw(MENU_DELETE_TEXT, 320/2, 448/2, 0, 320, 448, 0.5, 0.5)
+
+		for mask, tex in pairs(DPAD_TEXTURES) do
+			if bit.band(controller.pressed, mask) == mask then
+				graphics.easyDraw(tex, 320/2, (448/2)+60, 0, 128, 128, 0.5, 0.5)
+			end
+		end
+	elseif targets.SELECTING_MENU_ITEM ~= nil then
 		graphics.easyDraw(MENU_TEXT, 320/2, 448/2, 0, 320, 448, 0.5, 0.5)
 
 		if bit.band(controller.pressed, 0x40) == 0x40 then
@@ -760,10 +879,13 @@ function targets.drawSplits()
 		if bit.band(controller.pressed, 0x20) == 0x20 then
 			graphics.easyDraw(R_PRESSED, 160, 0, 0, 160, 112)
 		end
+		if bit.band(controller.pressed, 0x400) == 0x400 then
+			graphics.easyDraw(X_PRESSED, 160, 0, 0, 160, 200)
+		end
 
 		for mask, tex in pairs(DPAD_TEXTURES) do
 			if bit.band(controller.pressed, mask) == mask then
-				graphics.easyDraw(tex, 320/2, 448/2, 0, 128, 128, 0.5, 0.5)
+				graphics.easyDraw(tex, 320/2, (448/2)+84, 0, 128, 128, 0.5, 0.5)
 			end
 		end
 	end
