@@ -46,6 +46,10 @@ function PANEL:Initialize()
 		end
 	end
 
+	self.DELTA_FRAMES = LEFT:Add("Checkbox")
+	self.DELTA_FRAMES:SetText("Delta as Frames")
+	self.DELTA_FRAMES:Dock(DOCK_TOP)
+
 	if love.supportsGameCapture() then
 		local TLABEL = LEFT:Add("Label")
 		TLABEL:SetText("Transparency")
@@ -99,6 +103,7 @@ function PANEL:GetSaveTable()
 	return {
 		["debugging"] = self:IsDebugging(),
 		["transparency"] = self:GetTransparency(),
+		["deltaframes"] = self:ShowDeltaFrames(),
 	}
 end
 
@@ -108,6 +113,10 @@ end
 
 function PANEL:GetTransparency()
 	return self.TRANSPARENCY and self.TRANSPARENCY:GetValue() or nil
+end
+
+function PANEL:ShowDeltaFrames()
+	return self.DELTA_FRAMES and self.DELTA_FRAMES:IsToggled() or false
 end
 
 function PANEL:OnClosed()
@@ -155,6 +164,7 @@ function PANEL:LoadSettings()
 
 	if self.DEBUG then self.DEBUG:SetToggle(love.hasConsole() or settings["debugging"] or false) end
 	if self.TRANSPARENCY then self.TRANSPARENCY:SetValue(settings["transparency"] or 100) end
+	if self.DELTA_FRAMES then self.DELTA_FRAMES:SetToggle(settings["deltaframes"] or false) end
 end
 
 gui.register("Settings", PANEL, "Panel")

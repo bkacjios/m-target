@@ -511,7 +511,7 @@ function targets.newRun()
 		targets.RUN_IN_PROGRESS = true
 		targets.TIMER_SPLIT_FRAMES_ACTIVE = {}
 		targets.TIMER_FRAME_COUNT = 0
-		targets.BROKEN = 10 - memory.stage.targets
+		targets.BROKEN = 0
 		targets.RUN_RESULT = RESULT_NONE
 	end
 end
@@ -565,7 +565,7 @@ memory.hook("match.playing", "Targets - Fallback start/end of game check", funct
 	if targets.isValidRun() and not playing then
 		-- Assume a reset, since RESULT_RESET is very flaky and can't be relied on.
 		targets.endRun(RESULT_RESET)
-	else
+	elseif playing then
 		-- Try to start a new run if we didn't already.
 		targets.newRun()
 	end
@@ -817,24 +817,31 @@ function targets.drawSplits()
 
 			if targets.TIMER_SPLIT_FRAMES_PB[i] then
 				local bt = targets.TIMER_SPLIT_FRAMES_PB[i]
-				local dt = getMeleeTimestamp(t) - getMeleeTimestamp(bt)
+				local delta
+				local deltastr
 
-				local secstr = string.format("%+2.02f", dt)
+				if PANEL_SETTINGS:ShowDeltaFrames() then
+					delta = t - bt
+					deltastr = string.format("%+d", delta)
+				else
+					delta = getMeleeTimestamp(t) - getMeleeTimestamp(bt)
+					deltastr = string.format("%+2.02f", delta)
+				end
 
-				local bsecw = SPLIT_SEC:getWidth(secstr)
+				local bsecw = SPLIT_SEC:getWidth(deltastr)
 
 				graphics.setFont(SPLIT_SEC)
 				graphics.setColor(0, 0, 0, 255)
-				graphics.print(secstr, 320 - 8 - secw - 8 - bsecw, y)
+				graphics.print(deltastr, 320 - 8 - secw - 8 - bsecw, y)
 
-				if dt > 0 then
+				if delta > 0 then
 					graphics.setColor(225, 0, 0, 255)
-				elseif dt == 0 then
+				elseif delta == 0 then
 					graphics.setColor(155, 155, 155, 255)
-				elseif dt < 0 then
+				elseif delta < 0 then
 					graphics.setColor(0, 155, 40, 255)
 				end
-				graphics.print(secstr, 320 - 8 - secw - 8 - bsecw, y-1)
+				graphics.print(deltastr, 320 - 8 - secw - 8 - bsecw, y-1)
 			end
 		elseif i < current then
 			-- This will only happen if we launch the program mid BTT run
