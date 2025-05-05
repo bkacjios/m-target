@@ -44,6 +44,9 @@ local RESULT_COMPLETE	= 0x6	-- Successfully hit all targets
 local RESULT_LRAS		= 0x7	-- Quit using L+R+A+Start
 local RESULT_RESET		= 0x8	-- Reset using Z
 
+-- Only a guess, but this flag seems to go from 0x0 to 0x64 when you gain control
+local MOVEMENT_CONTROL = 0x64
+
 local RESULT_TEXT = {
 	[RESULT_NONE] = "NO RESULT",
 	[RESULT_FAILURE] = "FAILURE",
@@ -90,7 +93,7 @@ timedb:exec([[CREATE TABLE IF NOT EXISTS runs (
 	gframe		INTEGER, -- #frames in total (including before timer start)
 	targets		INTEGER, -- #targets that were hit
 	result		INTEGER, -- result status at the end (complete, failure, retry, etc)
-	deleted		INTEGER DEFAULT 0  -- run should be excluded in any data calculations
+	deleted		INTEGER DEFAULT 0 CHECK(deleted IN (0,1)) -- run should be excluded in any data calculations
 );]])
 
 do
@@ -183,10 +186,8 @@ end
 function targets.getBestTime(character)
 	local stmt = timedb:prepare("SELECT tframe FROM runs WHERE character=? AND gframe IS NOT NULL AND result=6 AND deleted <> 1 ORDER BY gframe ASC LIMIT 1;")
 	stmt:bind_values(character)
-
 	stmt:step()
 	targets.updateCDATA(character, "BestTime", stmt[0])
-
 	stmt:finalize()
 	return data
 end
@@ -421,6 +422,7 @@ function targets.confirmDelete(mode)
 			local character = targets.getCharacter()
 			targets.deleteRun(character)
 			targets.displayNextRun(character)
+			targets.updateCharacterStats()
 			targets.loadPreviousPersonalBestRun(character)
 		end
 		targets.IN_DELETE_CONFIRM = false
@@ -533,6 +535,8 @@ memory.hook("player.1.select.character", "Targets - Update Count", function(char
 	if targets.isInBTTCSS() then
 		targets.displayReset()
 		targets.setDisplayMode(MODE_LAST)
+	else
+		targets.updateCharacterStats(character)
 	end
 end)
 
@@ -552,6 +556,28 @@ memory.hook("match.result", "Targets - Check start of game", function(result)
 		targets.endRun(result)
 	end
 end)
+
+--[[
+	This is needed since match.result is unreliable duriong a RESULT_RESET, since it occurs within a 1 frame window.
+	We will use it when we can, but this will be used as a fallback incase the result was missed.
+]]
+memory.hook("match.playing", "Targets - Fallback start/end of game check", function(playing)
+	if targets.isValidRun() and not playing then
+		-- Assume a reset, since RESULT_RESET is very flaky and can't be relied on.
+		targets.endRun(RESULT_RESET)
+	else
+		-- Try to start a new run if we didn't already.
+		targets.newRun()
+	end
+end)
+
+memory.hook("player.1.movement", "Targets - Update Count", function(flags)
+	if bit.band(flags, MOVEMENT_CONTROL) == MOVEMENT_CONTROL then
+		-- Try to start a new run if we didn't already.
+		targets.newRun()
+	end
+end)
+
 
 memory.hook("stage.targets", "Targets - Save Split", function(remain, prev_remain)
 	if targets.IGNORE_TARGET_RESET then

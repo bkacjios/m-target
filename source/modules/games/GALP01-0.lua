@@ -65,6 +65,7 @@ local player_static_struct = {
 	--[0x045] = { type = "u8", name = "port" },
 	[0x046] = { type = "u8", name = "color" },
 	[0x047] = { type = "u8", name = "team" },
+	[0xE8C] = { type = "u8", name = "movement" }
 	--[0x048] = { type = "u8", name = "index" },
 	--[0x049] = { type = "u8", name = "cpu_level", debug = true },
 	--[0x04A] = { type = "u8", name = "cpu_type", debug = true }, -- 4 = 20XX, 22 = normalish, 19 = Alt Normal
