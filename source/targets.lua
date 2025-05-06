@@ -555,7 +555,7 @@ memory.hook("match.result", "Targets - Check start of game", function(result)
 end)
 
 --[[
-	This is needed since match.result is unreliable duriong a RESULT_RESET, since it occurs within a 1 frame window.
+	This is needed since match.result is unreliable during a RESULT_RESET, since it occurs within a 1 frame window.
 	We will use it when we can, but this will be used as a fallback incase the result was missed.
 ]]
 memory.hook("match.playing", "Targets - Fallback start/end of game check", function(playing)
@@ -643,8 +643,16 @@ local DPAD_TEXTURES = {
 	[0x8] = graphics.newImage("textures/buttons/d-pad-pressed-up.png"),
 }
 
+memory.hook("match.paused", "Targets - Disable menu on unpause", function(paused)
+	if not melee.isInMenus() and not paused then
+		-- Reset menu state just incase
+		targets.IN_DELETE_CONFIRM = false
+		targets.SELECTING_MENU_ITEM = nil
+	end
+end)
+
 memory.hook("controller.*.buttons.pressed", "Targets - Mode Switcher", function(port, pressed)
-	-- Only allow split traversal when we are paused or in the menus
+	-- Only allow menu traversal while paused or in the menus
 	if not melee.isInMenus() and not targets.isPaused() then return end
 
 	if targets.IN_DELETE_CONFIRM and pressed == 0x0 then
