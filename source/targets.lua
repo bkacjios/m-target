@@ -71,17 +71,11 @@ local MODE_DELETE_CANCEL = 0x0
 local MODE_DELETE_CONFIRM = 0x1
 
 local function getMeleeTimestamp(frame)
-	--local minutes = 0
-	local seconds
-	local decimal = math.floor((frame%60)*99/59)/100
-
-	if frame >= 0 then
-		seconds = math.floor(frame/60) + decimal
-	else
-		seconds = math.ceil(frame/60) - (1-decimal)
-	end
-
-	return seconds
+	local sign		= frame < 0 and -1 or 1
+	local f			= math.abs(frame)
+	local whole		= math.floor(f/60)
+	local decimal	= math.floor((f%60)*99/59)/100
+	return sign * (whole + decimal)
 end
 
 local timedb = lsqlite3.open(string.format("%s/time.db", love.filesystem.getSaveDirectory()))
@@ -416,14 +410,17 @@ end
 
 function targets.confirmDelete(mode)
 	if mode == MODE_DELETE_CONFIRM or mode == MODE_DELETE_CANCEL then
-		if targets.RUN_ID_ACTIVE == targets.RUN_ID_DISPLAY then
-			notification.warning("Cannot delete active run")
-		elseif mode == MODE_DELETE_CONFIRM then
-			local character = targets.getCharacter()
-			targets.deleteRun(character)
-			targets.displayNextRun(character)
-			targets.updateCharacterStats()
-			targets.loadPreviousPersonalBestRun(character)
+		if mode == MODE_DELETE_CONFIRM then
+			if targets.RUN_ID_ACTIVE == targets.RUN_ID_DISPLAY then
+				notification.warning("Cannot delete active run")
+			else
+				local character = targets.getCharacter()
+				targets.deleteRun(character)
+				targets.displayNextRun(character)
+				targets.updateCharacterStats()
+				targets.loadPreviousPersonalBestRun(character)
+				notification.info("Deleted run")
+			end
 		end
 		targets.IN_DELETE_CONFIRM = false
 		targets.SELECTING_MENU_ITEM = nil
@@ -835,11 +832,11 @@ function targets.drawSplits()
 				graphics.print(deltastr, 320 - 8 - secw - 8 - bsecw, y)
 
 				if delta > 0 then
-					graphics.setColor(225, 0, 0, 255)
+					graphics.setColor(237, 28, 36, 255)
 				elseif delta == 0 then
 					graphics.setColor(155, 155, 155, 255)
 				elseif delta < 0 then
-					graphics.setColor(0, 155, 40, 255)
+					graphics.setColor(34, 177, 76, 255)
 				end
 				graphics.print(deltastr, 320 - 8 - secw - 8 - bsecw, y-1)
 			end
